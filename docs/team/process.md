@@ -1,0 +1,72 @@
+# Build Process
+
+How the team builds steps 1–8 of the [build plan](../build_plan.md). The build plan says what to build; this doc says who builds it and how it is judged.
+
+## Scope
+
+Build order steps 1–8: skeleton, inventory, hold and confirm, wallet ledger, pricing, fake payment gateway, real-time, k6 drop test. Done means the drop test in §9 passes.
+
+Out of scope for this run: memberships and coupon grants (step 9), admin API (step 10), the Expo app, real Stripe, and production deploy. The `coupon` ledger account kind exists; nothing grants it yet.
+
+## Team
+
+| Role | Owns | Steps |
+| --- | --- | --- |
+| Orchestrator (main session) | Dispatch, worktrees, merges into `build/v1`, escalations, final PR | — |
+| Architect / PM | [contracts.md](contracts.md): module public actions, events, table ownership, HTTP API, error codes. One ticket per engineer in `tickets/`. Integration review at each merge | — |
+| Platform | Laravel skeleton, Docker Compose, CI, Pest arch tests, `app/Shared` (Money, idempotency middleware, outbox writer) | 1 |
+| Booking | Inventory (venues, slots, holds, Redis gate) and Reservations (state machine, confirm, cancel, 8-hour rule) | 2, 3 |
+| Ledger | Wallet: double-entry ledger, zero-sum trigger, balance projection, spend order, `wallet:reconcile` | 4 |
+| Pricing | Search events, rule-based quote, demand-signals job, party bands | 5 |
+| Payments & real-time | `PaymentGateway` and `FakeGateway`, webhooks; outbox publisher and Reverb channels | 6, 7 |
+| Performance | k6 drop script, drop seeder, results; hands fixes to the owning engineer | 8 |
+
+- Each engineer works in its own git worktree on a feature branch, with its own `COMPOSE_PROJECT_NAME` and port offsets.
+- Engineers edit only their own module directories. Cross-module needs go to the architect as a contract change.
+
+## Order
+
+1. Architect: contracts and tickets.
+2. Platform skeleton. Everything else depends on it.
+3. In parallel: Inventory and holds, Ledger, Pricing, Payments gateway.
+4. Booking confirm and cancel, plus real-time outbox.
+5. k6 drop test.
+6. Final product eval, then PR `build/v1` → `main`.
+
+## Module eval
+
+Every engineer is paired with an eval agent. Each round writes `evals/<module>-r<N>.md`.
+
+**Hard gates.** Any failure fails the round.
+
+1. Pest green for the module and the full suite, on real Postgres.
+2. PHPStan level 8 and Pint clean.
+3. Arch test: no imports of another module's internals.
+4. Every contract item for the module exists with the agreed signature.
+
+**Score (100).**
+
+| Area | Points | Earned by |
+| --- | --- | --- |
+| Correctness | 40 | Each rule in the relevant build plan section traced to code and a test |
+| Edge cases | 25 | Errors, expiry, retries, timezones, boundaries such as exactly 8 hours and capacity = booked |
+| Concurrency and idempotency | 20 | Parallel-request tests on shared state; replay tests on every write |
+| Code quality | 15 | Build plan §8 conventions: thin controllers, one action per use case, no dead code |
+
+**Bar:** all gates pass and score ≥ 90. Below the bar, the engineer fixes the listed defects and a fresh round runs. After 4 failed rounds, the architect steps in; if that fails, the user decides.
+
+## Final product eval
+
+Runs on the merged `build/v1`. Results go in `final-eval.md`.
+
+1. Fresh clone, `docker compose up`, migrate and seed from zero.
+2. Full Pest suite, PHPStan, Pint, CI green.
+3. k6 drop test, 3 runs, each passing every check in build plan §9.
+4. `wallet:reconcile` reports zero drift after the drop.
+5. End-to-end: search, hold, confirm (wallet plus card), cancel early, cancel late; balances match build plan §5.
+6. Every in-scope rule in the build plan maps to a passing test.
+7. Adversarial review of the full diff: security, races, money.
+
+Failures go back to the owning engineer through the module loop, then the final eval reruns from step 1.
+
+**Latency caveat.** Docker Desktop on macOS may cap p95 below what the code can do. If the code is clean and only latency misses locally, the CI run on Linux is the reference.
