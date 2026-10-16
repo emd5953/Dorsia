@@ -33,7 +33,8 @@ A single Laravel app with six internal modules mirrors Dorsia's setup and is the
 ```mermaid
 flowchart TB
     App["Member app<br/>Expo, iOS and Android"]
-    Ops["Ops tools<br/>Retool, Metabase"]
+    Admin["Admin tool<br/>Staff actions, writes via API"]
+    BI["BI tool<br/>Dashboards, read-only"]
     K6["k6 drop test<br/>5,000 virtual members"]
     Edge["Cloudflare: WAF, rate limits, bot filtering, waiting room"]
 
@@ -52,16 +53,59 @@ flowchart TB
     GW["Payment gateway<br/>Fake now, Stripe later"]
 
     App --> Edge
-    Ops --> Edge
+    Admin --> Edge
     K6 --> Edge
     Edge --> API
     API --> PG
     API --> Redis
     API --> RT
     API --> GW
+    BI -. "read-only role" .-> PG
 ```
 
-Requests pass Cloudflare first; inside, only a Postgres write can confirm a booking, while Redis and Reverb make it fast and live.
+Requests pass Cloudflare first; inside, only a Postgres write can confirm a booking, while Redis and Reverb make it fast and live. The admin tool writes only through the API, so staff credits and refunds hit the same ledger rules as member actions; the BI tool only reads, through a read-only Postgres role.
+
+**Admin API.** Staff actions live in the same Laravel app under `/admin/*`, as thin controllers over the existing module actions. The admin tool is just a client; any front end works.
+
+| Endpoint | Action called | Permission |
+| --- | --- | --- |
+| `POST /admin/members/{id}/credits` | `Wallet\IssueGoodwillCredit` | support |
+| `POST /admin/reservations/{id}/compensate` | `Wallet\CompensateMember` (`amount`, `charge_to`, `reason_code`) | support; `charge_to=venue` needs support_lead |
+| `POST /admin/reservations/{id}/cancel` | `Reservations\CancelReservation` (staff override of the 8-hour rule) | support |
+| `POST /admin/payments/{id}/refund` | `Wallet\RefundPayment` | finance |
+| `POST /admin/slots/{id}/release` | `Inventory\ReleaseSlot` | venue_ops |
+| `PATCH /admin/venues/{id}` | `Integrations\UpdateVenue` | venue_ops |
+
+- Separate staff auth guard (SSO), so a member token can never reach `/admin`.
+- Every admin write requires a `reason` and an idempotency key, and records the staff user in an `admin_audit_log` row in the same transaction.
+- Money actions above a threshold need a second approver; the threshold is a config value, not code.
+- The database role used by the API is the only one with write access; staff never get direct write credentials.
+
+**Compensation.** One endpoint covers forfeit waivers and refunds for failed service; staff choose who pays.
+
+| `charge_to` | When | Ledger effect |
+| --- | --- | --- |
+| `platform` | Goodwill: emergency, retention, Dorsia's own error | Dorsia's account pays |
+| `venue` | Venue at fault: closed, overbooked, cancelled on the member | Taken from venue_payable; if already paid out, netted from the next payout |
+
+- `amount` is capped at what the member actually lost on that reservation (the forfeit, or the full minimum if the venue failed to seat them).
+- `reason_code` comes from a fixed list per `charge_to`, so venue charges can be reported on.
+- Venue charges show as line items on the venue's payout statement. If the venue objects, its account manager handles it; if Dorsia agrees, staff post a second compensation moving the charge to `platform`. No dispute workflow; the audit log records both.
+
+**Pricing and demand signals.** Pricing has two halves, both inside the Pricing module.
+
+| Half | Runs | Does |
+| --- | --- | --- |
+| Demand signals | Scheduled Laravel job every 15 minutes | Aggregates sell-out speed per venue, weekday and hour, and unmet searches and custom-request bids per party-size band, into `demand_signals` |
+| Quote | Live, on each hold | Reads the latest signals for the hold's party-size band, computes the per-person minimum, locks it to the hold |
+
+- **Unmet search.** A search is unmet when the venue has no open slot at the requested hour, or has one but not enough capacity left for the requested party size. Searches are counted per party-size band (1–2, 3–4, 5+), so if tables for 2 are open but tables for 4 are sold out, demand rises for the 3–4 band only.
+- **Bands, not exact sizes.** Bands keep each row's counts large enough to trust; set them to match the venues' real table shapes. Sell-out speed is a property of the slot, so it is not split by band.
+- **Thin bands fall back.** If a band has fewer than 5 unmet searches in the window, the quote uses the venue-and-hour total instead.
+- **Searches live in Postgres, not analytics.** Pricing depends on them, the backend sees every search while client analytics drops some, and BI never feeds the backend. Rows older than 90 days are pruned; copy them to analytics through the outbox if needed.
+- **Deduplication.** A member counts at most once per venue, date, hour and party size, however many times they search or refresh. A few members refreshing the page can't push the price up.
+- The quote never waits on the job; stale signals mean a slightly stale price, never a failed booking.
+- The BI tool only reads `price_quotes` and `demand_signals` so humans can compare predicted demand with actual sell-through and tune the rules. Nothing it produces feeds back into the backend.
 
 ---
 
@@ -74,13 +118,16 @@ Postgres is the source of truth, and the database itself enforces the two rules 
 | venues | city_id, timezone, status | Timezone stored per venue, never inferred |
 | slots | venue_id, starts_at, capacity, booked_count | CHECK booked_count <= capacity |
 | holds | slot_id, member_id, expires_at, idempotency_key | Unique idempotency_key; expires in 5 minutes |
-| price_quotes | slot_id, amount_cents, inputs (jsonb), expires_at | Quote locked to the hold; inputs kept for audit |
+| search_events | member_id, venue_id, requested_at, party_size, had_availability | Unique (member_id, venue_id, requested_at hour, party_size); repeats are dropped, which deduplicates searches |
+| demand_signals | venue_id, weekday, hour, party_band, sellout_seconds_p50, unmet_searches, bid_count, computed_at | One row per venue, weekday, hour and party band; sellout_seconds_p50 is the same across bands; overwritten by the job |
+| price_quotes | slot_id, party_size, per_person_cents, amount_cents, inputs (jsonb), expires_at | Quote locked to the hold; CHECK amount_cents = per_person_cents * party_size; inputs kept for audit |
 | reservations | member_id, slot_id, party_size, min_spend_cents, status, idempotency_key | Unique idempotency_key; status is a state machine |
 | members, memberships | tier, period_end, status | One active membership per member |
 | ledger_accounts | owner, kind (cash, credit, coupon, venue_payable, platform) | One account per owner and kind |
 | ledger_transactions | type, reference, idempotency_key | Unique idempotency_key |
 | ledger_entries | transaction_id, account_id, amount_cents | Append-only; entries per transaction sum to zero |
 | coupon_lots | account_id, amount_cents, expires_at | Spend oldest-expiring first |
+| admin_audit_log | staff_user_id, action, subject, reason, payload, idempotency_key | Append-only; written in the same transaction as the change |
 | outbox_events | topic, payload, published_at | Written in the same transaction as the change; partial index on unpublished rows |
 | payments | provider, provider_ref, status | Unique provider_ref, so webhooks are idempotent |
 
@@ -119,18 +166,23 @@ If Redis and Postgres ever disagree, Postgres wins and the counter is rebuilt fr
 
 Every money movement is a balanced double-entry transaction, so a balance is always the sum of entries and can never drift.
 
+Examples use a table for 2 at a reported $500 per person ($1,000). Real minimums are dynamic per slot and come from the locked price quote; no amount is hard-coded.
+
 | Event | Debit | Credit | Example ($) |
 | --- | --- | --- | --- |
-| Book with card | card clearing | venue_payable | 400 |
-| Book with coupons | member coupon | venue_payable | 400 |
-| Cancel 8+ hours out | venue_payable | member credit | 400 |
-| Overage at end of meal | card clearing | venue_payable | 120 |
-| Cancel inside 8 hours | venue_payable | member credit 200, platform 100, venue 100 (split assumed) | 400 |
+| Book with card | card clearing | venue_payable | 1,000 |
+| Book with coupons | member coupon | venue_payable | 1,000 |
+| Cancel 8+ hours out | venue_payable | member credit | 1,000 |
+| Overage at end of meal | card clearing | venue_payable | 300 |
+| Cancel inside 8 hours | venue_payable 750 | member credit 500, platform 250 (the other 250 stays owed to the venue and goes out in its next payout; split assumed) | 1,000 |
 | Coupon grant (Premium) | platform | member coupon | 333 |
 | Coupon grant (Premium Plus) | platform | member coupon | full annual balance, one lot |
 | Coupon lot expiry (90 days Premium, 12 months Plus) | member coupon | platform | remaining lot |
 | Membership ends | member coupon | platform | all remaining lots |
-| Venue payout | venue_payable | external (Stripe Connect) | 400 |
+| Venue payout | venue_payable | external (Stripe Connect) | 1,000 |
+| Staff goodwill credit | platform | member credit | 50 |
+| Compensation, `charge_to=platform` | platform | member credit | 500 (waives the late-cancel forfeit) |
+| Compensation, `charge_to=venue` | venue_payable | member credit | 500 (venue at fault) |
 
 **Rules.**
 
@@ -158,6 +210,8 @@ Real-time pushes are a convenience layered on the database, and payments sit beh
 
 - Events leave through the outbox, so a broadcast never fires for a transaction that rolled back.
 - The app treats pushes as hints and re-fetches state; a missed event costs freshness, never correctness.
+- **Drop-ins.** A table can reopen at any moment: a hold expires, a member cancels, or a venue releases extra capacity. Each one restores the Redis counter and writes `slot.released` to the outbox in the same transaction as the Postgres change. Members not viewing the venue hear about it through a push notification, sent from the same outbox event *(inferred: "inventory drop-in" in a Dorsia engineer's profile)*.
+- **Who hears first.** Notifications go to members with an unmet search for that venue and hour whose party band fits the reopened capacity, ordered by membership tier, shuffled within each tier. Everyone else gets a general alert after the targeted members. Early access is a stated tier perk, not a hidden ranking.
 
 **Payments (stubbed).** One `PaymentGateway` interface with `authorize`, `capture`, `refund` and `payout`. A `FakeGateway` drives tests and can simulate declines, timeouts and duplicate webhooks. `StripeGateway` drops in later with no domain changes.
 
@@ -180,6 +234,10 @@ Run everything in Docker locally and match Dorsia's production shape, Laravel on
 | Observability | Laravel Telescope | Datadog APM, logs, alerts on p95 and ledger drift |
 
 **Why serverless fits.** Traffic is quiet most of the day and spikes on drops; Lambda scales out in seconds and costs nothing at idle. The watch-out is database connections, hence RDS Proxy.
+
+**Pre-warm before drops.** A drop is the one moment Lambda has to start hundreds of fresh instances at once, and a cold Laravel instance takes about 0.5–2 seconds to answer. In a race for a few tables, that delay decides who wins. Drops are scheduled, so a scheduled job raises provisioned concurrency a few minutes before each drop and lowers it after.
+
+Drop-ins can't be scheduled. A push notification for a table that just opened sends a spike with no warning, so keep a small baseline of provisioned concurrency warm at all times during dinner-booking hours. Targeting only members who searched for that slot keeps most sends small; larger ones go out tier by tier, which also flattens the spike.
 
 **Drop protection at the edge.** Per-member rate limits, a virtual waiting room for the largest drops, and bot filtering. Most of the fairness fight happens before the API.
 
@@ -231,9 +289,10 @@ The build is done when a simulated drop sells exactly 50 tables to 50 people wit
 2. Inventory and slots, with seeded venues across timezones.
 3. Hold and confirm flow, with locks and idempotency, plus concurrency tests.
 4. Wallet ledger with the balance trigger and nightly reconciliation.
-5. Pricing engine, starting rule-based (demand tiers by day and time).
+5. Pricing engine, starting rule-based (demand tiers by day and time), then the demand-signals job once there is booking history.
 6. Fake payment gateway and webhook handling.
 7. Real-time channels via the outbox.
 8. k6 drop test; fix until it passes.
 9. Memberships and coupon grants and expiry.
+10. Admin API with staff auth, audit log and permissions.
 10. Expo app on top of the proven API.

@@ -13,7 +13,8 @@ A Laravel backend on AWS Lambda serves an Expo React Native app, with Node/TypeS
 | Compute | AWS Lambda via Laravel Vapor | High |
 | Infra | AWS, Cloudflare, Vercel, Terraform, GitHub Actions | High |
 | Web | Next.js marketing site, likely on Vercel | Medium |
-| Internal and data | Retool, Metabase, Segment, dbt | High |
+| Internal tools | Admin tool (writes via API), BI tool (read-only); vendors unverified | Low |
+| Data pipeline | Segment (High, via mobile SDKs); dbt (Low, unverified) | Mixed |
 | Payments | Stripe Billing and Connect | High |
 
 ## Signals worth noting
@@ -23,4 +24,4 @@ A Laravel backend on AWS Lambda serves an Expo React Native app, with Node/TypeS
 - **Laravel owns the core domain:** reservations, payments, receipts, restaurant integrations.
 - **A dedicated mobile platform hire** signals investment in release infra and code standards.
 
-Sources: [Greenhouse: Product Engineer (NYC)](https://job-boards.greenhouse.io/dorsia/jobs/4754917007) · [Greenhouse: Product Engineer (NYC or Miami)](https://job-boards.greenhouse.io/dorsia/jobs/5198540007) · [Platform Engineer, Mobile](https://map.rezi.ai/jobs/job/27758127/platform-engineer-mobile-at-dorsia) · [Stripe: Dorsia case study](https://stripe.com/mx/customers/dorsia)
+Sources: [Greenhouse: Product Engineer (NYC)](https://job-boards.greenhouse.io/dorsia/jobs/4754917007) *(expired)* · [Greenhouse: Product Engineer (NYC or Miami)](https://job-boards.greenhouse.io/dorsia/jobs/5198540007) · [Platform Engineer, Mobile](https://map.rezi.ai/jobs/job/27758127/platform-engineer-mobile-at-dorsia) *(expired)* · [Stripe: Dorsia case study](https://stripe.com/mx/customers/dorsia)

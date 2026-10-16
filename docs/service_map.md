@@ -5,7 +5,8 @@ The Laravel API likely holds six domains in one codebase; the wallet ledger carr
 ```mermaid
 flowchart TB
     App["Member app<br/>React Native + Expo"]
-    Ops["Ops tools<br/>Retool, Metabase"]
+    Admin["Admin tool<br/>Staff actions, writes via API"]
+    BI["BI tool<br/>Dashboards, read-only"]
 
     subgraph API["Laravel API on AWS Lambda (Vapor), REST + GraphQL"]
         Inv["Inventory<br/>Slots, drops, holds"]
@@ -22,8 +23,9 @@ flowchart TB
     Rest["Restaurant systems<br/>Table and POS data"]
 
     App --> API
-    Ops --> API
+    Admin --> API
     API --> DB
+    BI -. "read-only" .-> DB
     API --> Pusher
     API --> Stripe
     API --> Rest
@@ -34,7 +36,7 @@ flowchart TB
 | Inventory | Slots, drops, holds; releases tables on schedule |
 | Pricing | Dynamic minimum per slot from urgency, timing, demand |
 | Reservations | Book, modify, cancel; the 8-hour cancellation rule |
-| Wallet ledger | Cash, credits, Fun Coupons; forfeits and coupon expiry; overage settled at end of meal |
+| Wallet ledger | Cash, credits, Fun Coupons; forfeits and coupon expiry; overage settled at end of meal; staff compensation charged to Dorsia or the venue |
 | Memberships | Tiers, trials, renewals via Stripe Billing |
 | Restaurant integrations | Sync with restaurant systems; payouts via Stripe Connect |
 

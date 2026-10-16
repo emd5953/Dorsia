@@ -11,7 +11,7 @@ Built from public sources: Dorsia's FAQ, Stripe's case study, job posts and the 
 | [Product overview](docs/product_overview.md) | How Dorsia makes money: membership, minimum spend, wallet, breakage | Done |
 | [Tech stack](docs/tech_stack.md) | What it runs on, with a confidence rating per layer | Done |
 | [Service map](docs/service_map.md) | How the backend likely splits into domains, and the booking flow *(inferred)* | Done |
-| [Build plan](docs/build_plan.md) | How to rebuild it at 10x scale: architecture, data model, drop handling, ledger | Done |
+| [Build plan](docs/build_plan.md) | How to rebuild it at 10x scale: architecture, data model, drop handling, ledger, admin API | Done |
 
 Read them in that order: the product explains the money, the stack explains the tools, the service map connects the two, and the build plan turns it into something buildable.
 
@@ -28,6 +28,6 @@ Read them in that order: the product explains the money, the stack explains the 
 - [Dorsia FAQ](https://www.dorsia.com/faq)
 - [Dorsia SevenRooms playbook](https://www.dorsia.com/restaurants/help/playbooks/frictionless-sevenrooms)
 - [Stripe: Dorsia case study](https://stripe.com/mx/customers/dorsia)
-- [Greenhouse: Product Engineer (NYC)](https://job-boards.greenhouse.io/dorsia/jobs/4754917007)
+- [Greenhouse: Product Engineer (NYC)](https://job-boards.greenhouse.io/dorsia/jobs/4754917007) *(expired)*
 - [Greenhouse: Product Engineer (NYC or Miami)](https://job-boards.greenhouse.io/dorsia/jobs/5198540007)
-- [Platform Engineer, Mobile](https://map.rezi.ai/jobs/job/27758127/platform-engineer-mobile-at-dorsia)
+- [Platform Engineer, Mobile](https://map.rezi.ai/jobs/job/27758127/platform-engineer-mobile-at-dorsia) *(expired)*
