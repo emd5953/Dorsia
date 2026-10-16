@@ -4,7 +4,7 @@ Dorsia sells certainty: members prepay a dynamically priced minimum spend to loc
 
 ## Core loop
 
-Member picks venue, date and time, then prepays a locked-in minimum spend. Anything above the minimum is settled at the end of the meal with tax and tip. If no slot fits, a member can submit a custom request with a proposed per-person minimum.
+Member picks venue, date and time, then prepays a locked-in minimum spend. Anything above the minimum is settled at the end of the meal with tax and tip; anything below it is kept, not refunded. If no slot fits, a member can submit a custom request with a proposed per-person minimum.
 
 ## Membership vs minimum spend
 
@@ -20,8 +20,11 @@ Two separate charges.
 ## Monetization layers
 
 - **Subscriptions:** tiers built on Stripe Billing, with trials that auto-convert.
-- **Closed-loop currency:** Premium is $5,000/year and includes $4,000 in Fun Coupons, dropped into the Wallet monthly or quarterly.
-- **Float and breakage:** cancel 8+ hours out and 100% returns as dining credit, not cash; inside 8 hours, 50% is forfeited.
+- **Closed-loop currency:** Premium is $5,000/year and includes $4,000 in Fun Coupons. Coupons pay table minimums at booking, not the overage, tax or tip.
+  - **Premium:** coupons drop every 30 days; each batch expires after 90 days.
+  - **Premium Plus:** full balance up front; expires after 12 months.
+  - **Both tiers:** all membership coupons expire when the membership ends.
+- **Float and breakage:** cancel 8+ hours out and 100% returns as dining credit, not cash; inside 8 hours, 50% is forfeited. Credits pay future minimums at any venue; they don't expire and can't be cashed out *(assumed)*. Underspend is also breakage: staff post the shortfall as an open "Dorsia Balance" item so the check reaches the minimum, and the member gets nothing back.
 
 ## Supply side
 
@@ -31,4 +34,4 @@ Restaurants are paid out via Stripe Connect within 24 hours. They get guaranteed
 
 Sell-out speed per slot, bids from custom requests, searches for unavailable slots, and spender profiles. This is what lets Dorsia price tables like airline seats.
 
-Sources: [Dorsia FAQ](https://www.dorsia.com/faq) · [Stripe: Dorsia case study](https://stripe.com/mx/customers/dorsia)
+Sources: [Dorsia FAQ](https://www.dorsia.com/faq) · [Dorsia SevenRooms playbook](https://www.dorsia.com/restaurants/help/playbooks/frictionless-sevenrooms) · [Stripe: Dorsia case study](https://stripe.com/mx/customers/dorsia)

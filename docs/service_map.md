@@ -34,7 +34,7 @@ flowchart TB
 | Inventory | Slots, drops, holds; releases tables on schedule |
 | Pricing | Dynamic minimum per slot from urgency, timing, demand |
 | Reservations | Book, modify, cancel; the 8-hour cancellation rule |
-| Wallet ledger | Cash, credits, Fun Coupons; forfeits and coupon expiry |
+| Wallet ledger | Cash, credits, Fun Coupons; forfeits and coupon expiry; overage settled at end of meal |
 | Memberships | Tiers, trials, renewals via Stripe Billing |
 | Restaurant integrations | Sync with restaurant systems; payouts via Stripe Connect |
 
