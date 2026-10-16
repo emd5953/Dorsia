@@ -24,6 +24,19 @@ Out of scope for this run: memberships and coupon grants (step 9), admin API (st
 - Each engineer works in its own git worktree on a feature branch, with its own `COMPOSE_PROJECT_NAME` and port offsets.
 - Engineers edit only their own module directories. Cross-module needs go to the architect as a contract change.
 
+## Decisions and escalation
+
+- Engineers and eval agents send design or scope questions to the architect and build to its answer. Only scope changes reach the user.
+- A project hook (`.claude/hooks/guard.mjs`) blocks force pushes, pushes to `main`, `rm -r` outside the repo, worktrees or scratchpad, `docker system prune`, removing non-project Docker volumes, `curl | sh`, and file writes outside those roots. A blocked agent works around it or asks the orchestrator.
+
+## Fallback when Claude runs out
+
+If any agent stops on a usage or rate limit, the orchestrator reruns the same brief with Codex CLI in the agent's worktree:
+
+`codex exec -C <worktree> -s workspace-write -o <scratchpad>/<role>-codex.md "<same brief>"`
+
+It runs as a background terminal process, with its log in the scratchpad. Codex output goes through the same eval loop as any engineer's. The Claude guard hook doesn't cover Codex; the `workspace-write` sandbox keeps its writes inside the worktree. If that sandbox blocks the Docker socket, the orchestrator widens it for that run only.
+
 ## Order
 
 1. Architect: contracts and tickets.
