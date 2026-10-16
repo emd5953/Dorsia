@@ -173,7 +173,9 @@ No `tier` column in this run (memberships are step 9).
 | request_hash | char(64) not null | sha256, C§8 |
 | status | varchar(16) not null | CHECK in (`processing`,`completed`) |
 | response_status | smallint null | |
-| response_body | jsonb null | |
+| response_body | text null | exact response bytes, never re-encoded |
+| response_content_type | varchar(100) null | `Content-Type` header of the stored response |
+| lock_token | uuid not null | owner of the current execution; new value on every takeover |
 | locked_at | timestamptz not null | when processing began |
 | completed_at | timestamptz null | |
 | created_at | timestamptz not null | |
@@ -966,10 +968,10 @@ Base path `/api`. JSON only. All endpoints except `POST /api/auth/token`, `POST 
 - Required; missing → 400 `idempotency_key_required`; not matching `^[A-Za-z0-9._:-]{1,200}$` → 400 `idempotency_key_invalid`. Clients should send a UUID.
 - Scope is `(member_id, key)`.
 - `request_hash = sha256(METHOD + "\n" + path + "\n" + canonical_json(body))`, where canonical JSON sorts object keys recursively and has no whitespace; an empty body hashes as `{}`.
-- First request: insert `processing` row (`ON CONFLICT DO NOTHING`), run the handler. Response status < 500 → store status and body, mark `completed`. Status ≥ 500 or exception → delete the row so a retry re-executes.
+- First request: insert a `processing` row with a fresh `lock_token` (`ON CONFLICT DO NOTHING`), run the handler. Response status < 500 → `UPDATE ... SET status='completed', response_status, response_body (exact bytes), response_content_type, completed_at WHERE id = :id AND lock_token = :mine AND status = 'processing'`. Status ≥ 500 or exception → `DELETE ... WHERE id = :id AND lock_token = :mine` so a retry re-executes. If either statement affects 0 rows, ownership was lost to a takeover: return this request's own response unchanged, store nothing, log `warning`.
 - Same key, different hash → 422 `idempotency_mismatch` (§4).
-- Same key, same hash, `completed` → replay stored status and body with header `Idempotent-Replayed: true`.
-- Same key, same hash, `processing` and `locked_at` within `idempotency.stale_after_seconds` (30) → 409 `idempotency_in_progress` with `Retry-After: 1`. Older → take over (`UPDATE ... SET locked_at = now WHERE locked_at = :old`) and re-execute; domain-level unique keys make re-execution safe.
+- Same key, same hash, `completed` → replay the stored status, the stored body **byte for byte** and the stored `Content-Type`, plus header `Idempotent-Replayed: true`. Tests compare `getContent()` with `toBe`, not `assertExactJson`.
+- Same key, same hash, `processing` and `locked_at` within `idempotency.stale_after_seconds` (30) → 409 `idempotency_in_progress` with `Retry-After: 1`. Older → take over with `UPDATE ... SET locked_at = :now, lock_token = :new WHERE id = :id AND status = 'processing' AND lock_token = :old` (0 rows → someone else took over or completed: re-read and apply these rules again), then re-execute; domain-level unique keys make re-execution safe. The slow original then fails the `lock_token` check above and cannot overwrite or delete the new owner's result.
 - Rows are pruned after `idempotency.retention_hours` (24) by `idempotency:prune` (daily).
 
 ### Endpoints
