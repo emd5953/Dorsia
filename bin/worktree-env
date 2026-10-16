@@ -1,0 +1,48 @@
+#!/bin/sh
+# Usage: bin/worktree-env <NN>   (NN = 00..09, the ticket number)
+# Creates .env from .env.example if absent, then sets the compose project name
+# and the four host ports (offset NN * 100). Safe to run repeatedly.
+set -eu
+
+usage() {
+    echo "usage: bin/worktree-env <NN>   (NN in 00..09)" >&2
+    exit 1
+}
+
+[ "$#" -eq 1 ] || usage
+
+case "$1" in
+    0[0-9]) ;;
+    *) usage ;;
+esac
+
+nn="$1"
+# POSIX-safe decimal conversion of a zero-padded number.
+n=$(printf '%d' "$(printf '%s' "$nn" | sed 's/^0*\([0-9]\)/\1/')")
+offset=$((n * 100))
+
+root=$(cd "$(dirname "$0")/.." && pwd)
+cd "$root"
+
+if [ ! -f .env ]; then
+    cp .env.example .env
+fi
+
+set_var() {
+    key="$1"
+    value="$2"
+    if grep -q "^${key}=" .env; then
+        sed "s|^${key}=.*|${key}=${value}|" .env > .env.tmp
+        mv .env.tmp .env
+    else
+        printf '%s=%s\n' "$key" "$value" >> .env
+    fi
+}
+
+set_var COMPOSE_PROJECT_NAME "dorsia-${nn}"
+set_var APP_PORT "$((8000 + offset))"
+set_var REVERB_PORT "$((8080 + offset))"
+set_var FORWARD_DB_PORT "$((5432 + offset))"
+set_var FORWARD_REDIS_PORT "$((6379 + offset))"
+
+echo "dorsia-${nn}: app=$((8000 + offset)) reverb=$((8080 + offset)) db=$((5432 + offset)) redis=$((6379 + offset))"
