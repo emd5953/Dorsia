@@ -59,6 +59,26 @@ it('renders model-not-found as not_found', function (): void {
         ->assertJsonPath('error.code', 'not_found');
 });
 
+it('maps framework HTTP exceptions to their C§9 codes and statuses', function (int $status, string $code): void {
+    Route::get("/api/_test/abort-{$status}", fn () => abort($status));
+
+    $this->getJson("/api/_test/abort-{$status}")
+        ->assertStatus($status)
+        ->assertJsonPath('error.code', $code);
+})->with([
+    [401, 'unauthenticated'],
+    [403, 'forbidden'],
+    [404, 'not_found'],
+    [405, 'method_not_allowed'],
+    [429, 'rate_limited'],
+    [400, 'http_error'],
+    [409, 'http_error'],
+    [419, 'http_error'],
+    [422, 'http_error'],
+    [500, 'server_error'],
+    [503, 'server_error'],
+]);
+
 it('renders unexpected exceptions as server_error without a trace when debug is off', function (): void {
     config(['app.debug' => false]);
 

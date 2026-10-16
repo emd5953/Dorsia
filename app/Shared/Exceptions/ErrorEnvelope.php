@@ -4,9 +4,7 @@ declare(strict_types=1);
 
 namespace App\Shared\Exceptions;
 
-use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
-use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
@@ -50,14 +48,6 @@ final class ErrorEnvelope
             return self::response('unauthenticated', 'Unauthenticated.', 401);
         }
 
-        if ($e instanceof AuthorizationException) {
-            return self::response('forbidden', 'Forbidden.', 403);
-        }
-
-        if ($e instanceof ModelNotFoundException) {
-            return self::response('not_found', 'Not found.', 404);
-        }
-
         if ($e instanceof HttpExceptionInterface) {
             return match ($e->getStatusCode()) {
                 401 => self::response('unauthenticated', 'Unauthenticated.', 401),
@@ -65,7 +55,9 @@ final class ErrorEnvelope
                 404 => self::response('not_found', 'Not found.', 404),
                 405 => self::response('method_not_allowed', 'Method not allowed.', 405),
                 429 => self::response('rate_limited', 'Too many requests.', 429),
-                default => self::response('server_error', 'Server error.', $e->getStatusCode()),
+                default => $e->getStatusCode() < 500
+                    ? self::response('http_error', 'Request error.', $e->getStatusCode())
+                    : self::response('server_error', 'Server error.', $e->getStatusCode()),
             };
         }
 
