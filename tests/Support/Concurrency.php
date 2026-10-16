@@ -9,10 +9,14 @@ use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Redis;
+use RuntimeException;
 use Spatie\Fork\Fork;
+use Throwable;
 
 final class Concurrency
 {
+    private const CHILD_TIMEOUT_SECONDS = 30;
+
     /**
      * Runs each closure in its own forked process after DB::purge()/reconnect and Redis purge.
      * Closures must return serializable values. Returns results in order.
@@ -25,32 +29,62 @@ final class Concurrency
         // Children must open their own connections; never share a socket with the parent.
         self::purgeConnections();
 
-        // Every child connects, then waits for a common start instant so they really collide.
-        $startAt = microtime(true) + 0.75;
+        $closures = array_values($closures);
+        $count = count($closures);
+        $barrier = sys_get_temp_dir().'/dorsia-barrier-'.bin2hex(random_bytes(6));
+        mkdir($barrier);
 
-        $closures = array_map(
-            fn (Closure $closure): Closure => function () use ($closure, $startAt): mixed {
-                DB::connection()->getPdo();
+        // Every child connects, announces itself, then waits until all siblings have arrived,
+        // so they really collide. A child that outlives CHILD_TIMEOUT_SECONDS is killed by SIGALRM.
+        $wrapped = [];
 
-                $wait = $startAt - microtime(true);
+        foreach ($closures as $index => $closure) {
+            $wrapped[] = function () use ($closure, $index, $count, $barrier): array {
+                pcntl_signal(SIGALRM, SIG_DFL);
+                pcntl_alarm(self::CHILD_TIMEOUT_SECONDS);
 
-                if ($wait > 0) {
-                    usleep((int) ($wait * 1_000_000));
+                try {
+                    DB::connection()->getPdo();
+                    touch("{$barrier}/{$index}");
+
+                    while (count(scandir($barrier) ?: []) - 2 < $count) {
+                        usleep(500);
+                    }
+
+                    return ['ok' => true, 'value' => $closure()];
+                } catch (Throwable $e) {
+                    return ['ok' => false, 'error' => $e::class.': '.$e->getMessage()];
                 }
-
-                return $closure();
-            },
-            $closures,
-        );
+            };
+        }
 
         try {
-            $results = Fork::new()->run(...array_values($closures));
+            $results = Fork::new()->run(...$wrapped);
 
             // Fork collects results in completion order, keyed by closure index.
             ksort($results);
 
-            return array_values($results);
+            $values = [];
+
+            foreach ($results as $index => $result) {
+                if (! is_array($result) || ! array_key_exists('ok', $result)) {
+                    throw new RuntimeException('Concurrency child '.$index.' produced no result (timed out after '.self::CHILD_TIMEOUT_SECONDS.'s or was killed).');
+                }
+
+                if ($result['ok'] !== true) {
+                    throw new RuntimeException('Concurrency child '.$index.' failed: '.$result['error']);
+                }
+
+                $values[] = $result['value'];
+            }
+
+            return $values;
         } finally {
+            foreach (glob("{$barrier}/*") ?: [] as $file) {
+                unlink($file);
+            }
+
+            rmdir($barrier);
             self::purgeConnections();
         }
     }

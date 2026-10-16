@@ -7,6 +7,7 @@ namespace App\Shared\Idempotency;
 use App\Shared\Exceptions\ErrorEnvelope;
 use Closure;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -107,13 +108,27 @@ final class EnsureIdempotency
 
         $content = $response->getContent();
 
-        $stored = $this->owned($key, $token)->update([
-            'status' => 'completed',
-            'response_status' => $response->getStatusCode(),
-            'response_body' => is_string($content) ? $content : null,
-            'response_content_type' => $response->headers->get('Content-Type'),
-            'completed_at' => now(),
-        ]);
+        try {
+            $stored = $this->owned($key, $token)->update([
+                'status' => 'completed',
+                'response_status' => $response->getStatusCode(),
+                'response_body' => is_string($content) ? $content : null,
+                'response_content_type' => $response->headers->get('Content-Type'),
+                'completed_at' => now(),
+            ]);
+        } catch (QueryException $e) {
+            // The handler already committed its work; never turn that into a 500.
+            // Drop the row so a retry re-executes instead of waiting for the stale window.
+            Log::warning('Idempotency completion failed; response not stored.', [
+                'member_id' => $key->memberId,
+                'key' => $key->value,
+                'error' => $e->getMessage(),
+            ]);
+
+            $this->owned($key, $token)->delete();
+
+            return $response;
+        }
 
         if ($stored === 0) {
             $this->lostOwnership($key);
@@ -178,25 +193,35 @@ final class EnsureIdempotency
 
     private function requestHash(Request $request, string $method, string $path): string
     {
-        $body = $request->isJson() ? $request->json()->all() : $request->all();
-        $canonical = $body === [] ? '{}' : json_encode(
+        $content = $request->getContent();
+        $body = $request->isJson() && $content !== '' ? json_decode($content) : null;
+
+        // Objects stay objects and lists stay lists, so {"x":{}} and {"x":[]} hash differently.
+        $body ??= (object) $request->all();
+
+        $canonical = json_encode(
             $this->canonicalize($body),
-            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR,
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR,
         );
+
+        if ($canonical === '[]') {
+            $canonical = '{}';
+        }
 
         return hash('sha256', $method."\n".$path."\n".$canonical);
     }
 
     private function canonicalize(mixed $value): mixed
     {
-        if (! is_array($value)) {
-            return $value;
+        if (is_array($value)) {
+            return array_map($this->canonicalize(...), $value);
         }
 
-        $value = array_map($this->canonicalize(...), $value);
+        if (is_object($value)) {
+            $properties = array_map($this->canonicalize(...), get_object_vars($value));
+            ksort($properties, SORT_STRING);
 
-        if (! array_is_list($value)) {
-            ksort($value);
+            return (object) $properties;
         }
 
         return $value;

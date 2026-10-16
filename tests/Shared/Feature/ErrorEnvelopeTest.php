@@ -79,6 +79,25 @@ it('maps framework HTTP exceptions to their C§9 codes and statuses', function (
     [503, 'server_error'],
 ]);
 
+it('keeps protocol headers from HTTP exceptions', function (): void {
+    $this->getJson('/api/auth/token')
+        ->assertStatus(405)
+        ->assertHeader('Allow', 'POST');
+
+    Route::get('/api/_test/throttled', fn () => abort(429, '', ['Retry-After' => '30']));
+    Route::get('/api/_test/unavailable', fn () => abort(503, '', ['Retry-After' => '120']));
+
+    $this->getJson('/api/_test/throttled')
+        ->assertStatus(429)
+        ->assertHeader('Retry-After', '30')
+        ->assertJsonPath('error.code', 'rate_limited');
+
+    $this->getJson('/api/_test/unavailable')
+        ->assertStatus(503)
+        ->assertHeader('Retry-After', '120')
+        ->assertJsonPath('error.code', 'server_error');
+});
+
 it('renders unexpected exceptions as server_error without a trace when debug is off', function (): void {
     config(['app.debug' => false]);
 
