@@ -56,7 +56,7 @@ Edge simulation (Cloudflare, waiting room, rate limits), Lambda pre-warming, web
 - [ ] Every VU's retry with the same key returned a response identical to the first (the `unexpected` counter is 0).
 - [ ] Results of all three runs recorded in `RESULTS.md` with the JSON summaries committed under `loadtest/results/` (small summaries only, not raw metrics).
 - [ ] If p95 fails only on Docker Desktop for macOS, a Linux run (CI runner or Linux host) is recorded as the reference per process.md.
-- [ ] `tests/Performance/DropTestSeederTest.php` (runs with a reduced count via a seeder parameter/env such as `DROP_TEST_MEMBERS=50`) asserts the slot, drop, members, tokens and goodwill credits are created as specified.
+- [ ] `tests/Performance/DropTestSeederTest.php` (bound as a Feature test in `tests/Pest.php`, C§15; runs with a reduced count via a seeder parameter/env such as `DROP_TEST_MEMBERS=50`) asserts the slot, drop, members, tokens and goodwill credits are created as specified.
 - [ ] Gates: `make ci` and `make arch` still green.
 
 ## Required tests

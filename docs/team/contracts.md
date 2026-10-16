@@ -86,7 +86,9 @@ docker/, Dockerfile, docker-compose.yml, Makefile, bin/, .github/, phpunit.xml, 
 1. loads `routes/api.php` with `Route::prefix('api')->middleware('api')->group(...)`;
 2. calls `loadMigrationsFrom(<module>/Database/Migrations)`;
 3. `mergeConfigFrom(<module>/config.php, <key>)` (done in `register()`);
-4. calls the overridable hooks `commands(): array<class-string>` and `schedule(Schedule $s): void` (registered via `callAfterResolving(Schedule::class, ...)`), and `listeners(): array<class-string, list<class-string>>`.
+4. calls the overridable hooks `consoleCommands(): array<class-string>` (not `commands()`, which Laravel's `ServiceProvider` already defines), `schedule(Schedule $s): void` (registered via `callAfterResolving(Schedule::class, ...)`), and `listeners(): array<class-string, list<class-string>>`.
+
+A module provider that overrides `boot()` or `register()` must call `parent::boot()` / `parent::register()`.
 
 All six providers are listed in `bootstrap/providers.php` by Platform in ticket 01, with empty skeletons, so no later ticket edits a shared file. Config keys: `inventory`, `pricing`, `reservations`, `wallet`, `payments`, `realtime`.
 
@@ -1034,6 +1036,7 @@ Route model binding is not used across modules; controllers take `int` ids and c
 | `not_found` | 404 | unknown route, or any `*NotFoundException` |
 | `method_not_allowed` | 405 | framework |
 | `rate_limited` | 429 | framework (unused on booking routes) |
+| `http_error` | the exception's own 4xx status | any other framework `HttpException` with a 4xx status not listed above |
 | `idempotency_key_required` | 400 | Shared |
 | `idempotency_key_invalid` | 400 | Shared |
 | `idempotency_mismatch` | 422 | Shared |
@@ -1054,7 +1057,7 @@ Route model binding is not used across modules; controllers take `int` ids and c
 | `card_required` | 422 | Reservations (`details.card_cents`) |
 | `reservation_not_cancellable` | 409 | Reservations |
 | `reservation_started` | 409 | Reservations |
-| `server_error` | 500 | anything unexpected |
+| `server_error` | 500 | anything unexpected, and any 5xx `HttpException` |
 
 No other code strings may be emitted without a contract change.
 
@@ -1286,7 +1289,7 @@ LATE_CANCEL_PLATFORM_BPS=2500
 | `make test` | `php artisan test` (all suites) in `app`; `make test ARGS="--filter=Hold"` passes args |
 | `make test-module M=Inventory` | `vendor/bin/pest tests/Modules/Inventory tests/Arch/Contracts/InventoryContractTest.php` |
 | `make arch` | `vendor/bin/pest tests/Arch` |
-| `make stan` | `vendor/bin/phpstan analyse --memory-limit=1G` (level 8; paths `app`, `database`, `routes`, `config`) |
+| `make stan` | `vendor/bin/phpstan analyse --memory-limit=1G` (level 8; paths `app`, `database`, `routes`, `config`; `treatPhpDocTypesAsCertain: false`; no baseline, no `ignoreErrors` without architect approval) |
 | `make pint` | `vendor/bin/pint --test` |
 | `make pint-fix` | `vendor/bin/pint` |
 | `make ci` | `pint`, `stan`, `test` in that order; non-zero exit on first failure |
@@ -1304,6 +1307,7 @@ All PHP commands run as `docker compose exec -T app ...`. CI (`.github/workflows
   - `Unit`: `Tests\TestCase`, no DB trait.
   - `Feature`: `Tests\TestCase` + `RefreshDatabase`; `beforeEach` runs `DB::statement('SET CONSTRAINTS ALL IMMEDIATE')` and `Redis::connection()->flushdb()`.
   - `Concurrency`: `Tests\TestCase` + `DatabaseTruncation`, `->group('concurrency')`; `beforeEach` flushes Redis (both test DBs).
+  - `tests/Performance`: bound exactly like `Feature` (RefreshDatabase, immediate constraints, Redis flush).
   - If Pest's `in()` does not accept globs, Platform lists every module directory explicitly; module engineers never edit `Pest.php`.
 - **Time.** Use `$this->travelTo()` / `$this->travel()`. Application code never uses SQL `now()` (C§3), so time travel is honored everywhere.
 - **Concurrency helper** `Tests\Support\Concurrency` (Platform), built on `spatie/fork`:
