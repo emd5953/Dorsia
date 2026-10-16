@@ -25,6 +25,24 @@ final class Concurrency
         // Children must open their own connections; never share a socket with the parent.
         self::purgeConnections();
 
+        // Every child connects, then waits for a common start instant so they really collide.
+        $startAt = microtime(true) + 0.75;
+
+        $closures = array_map(
+            fn (Closure $closure): Closure => function () use ($closure, $startAt): mixed {
+                DB::connection()->getPdo();
+
+                $wait = $startAt - microtime(true);
+
+                if ($wait > 0) {
+                    usleep((int) ($wait * 1_000_000));
+                }
+
+                return $closure();
+            },
+            $closures,
+        );
+
         try {
             $results = Fork::new()->run(...array_values($closures));
 

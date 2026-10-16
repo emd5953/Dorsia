@@ -7,7 +7,58 @@ use App\Shared\Members\Member;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use Tests\Support\Concurrency;
+
+it('lets exactly one of 20 parallel requests take over a stale processing row', function (): void {
+    Schema::create('idempotency_race_rows', function ($table): void {
+        $table->id();
+        $table->integer('pid');
+    });
+
+    try {
+        Route::middleware(['api', 'auth:sanctum', 'idempotent'])
+            ->post('/api/_test/stale-race', function () {
+                usleep(300_000);
+                DB::table('idempotency_race_rows')->insert(['pid' => getmypid()]);
+
+                return response()->json(['data' => ['ok' => true]], 201);
+            });
+
+        $member = Member::factory()->create();
+        $token = $member->createToken('race')->plainTextToken;
+        $body = ['slot' => 1];
+
+        DB::table('idempotency_keys')->insert([
+            'member_id' => $member->id,
+            'key' => 'stale-race-key',
+            'method' => 'POST',
+            'path' => '/api/_test/stale-race',
+            'request_hash' => hash('sha256', "POST\n/api/_test/stale-race\n".json_encode($body)),
+            'status' => 'processing',
+            'lock_token' => (string) Str::uuid(),
+            'locked_at' => now()->subSeconds(120),
+            'created_at' => now()->subSeconds(120),
+        ]);
+
+        $responses = Concurrency::requests(20, fn (int $i): array => [
+            'method' => 'POST',
+            'uri' => '/api/_test/stale-race',
+            'token' => $token,
+            'body' => $body,
+            'headers' => ['Idempotency-Key' => 'stale-race-key'],
+        ]);
+
+        foreach ($responses as $response) {
+            expect($response['status'])->toBeIn([201, 409]);
+        }
+
+        expect(DB::table('idempotency_race_rows')->count())->toBe(1)
+            ->and(IdempotencyRecord::query()->sole()->status)->toBe('completed');
+    } finally {
+        Schema::dropIfExists('idempotency_race_rows');
+    }
+});
 
 it('executes one handler for 20 parallel identical requests and never returns a 5xx', function (): void {
     Schema::create('idempotency_race_rows', function ($table): void {
