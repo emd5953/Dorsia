@@ -7,6 +7,7 @@ use App\Shared\Members\Member;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 
 const IDEMPOTENCY_TEST_URI = '/api/_test/idempotent';
@@ -25,7 +26,13 @@ beforeEach(function (): void {
                 throw new RuntimeException('boom');
             }
 
-            return response()->json(['data' => ['call' => $this->handlerCalls]], 201);
+            return response()->json(['data' => [
+                'call' => $this->handlerCalls,
+                'id' => 9,
+                'status' => 'active',
+                'slot' => ['capacity' => 6, 'a' => null],
+                'note' => "caf\u{e9}/x",
+            ]], 201);
         });
 
     Route::middleware(['api', 'auth:sanctum', 'idempotent'])
@@ -72,8 +79,9 @@ it('rejects an invalid key with 400 idempotency_key_invalid', function (): void 
 });
 
 it('stores the first call as completed', function (): void {
-    idempotentPost($this, $this->token, 'first-1')
-        ->assertCreated()
+    $response = idempotentPost($this, $this->token, 'first-1');
+
+    $response->assertCreated()
         ->assertHeaderMissing('Idempotent-Replayed')
         ->assertJsonPath('data.call', 1);
 
@@ -86,7 +94,9 @@ it('stores the first call as completed', function (): void {
         ->and($row->request_hash)->toHaveLength(64)
         ->and($row->status)->toBe('completed')
         ->and($row->response_status)->toBe(201)
-        ->and(json_decode((string) $row->getRawOriginal('response_body'), true))->toBe(['data' => ['call' => 1]])
+        ->and($row->getRawOriginal('response_body'))->toBe($response->getContent())
+        ->and($row->getRawOriginal('response_content_type'))->toBe($response->headers->get('Content-Type'))
+        ->and($row->lock_token)->not->toBeEmpty()
         ->and($row->completed_at)->not->toBeNull();
 });
 
@@ -94,9 +104,10 @@ it('replays status, body and header for the same key and body without re-running
     $first = idempotentPost($this, $this->token, 'replay-1');
     $second = idempotentPost($this, $this->token, 'replay-1');
 
-    $second->assertCreated()
-        ->assertHeader('Idempotent-Replayed', 'true')
-        ->assertExactJson($first->json());
+    $second->assertCreated()->assertHeader('Idempotent-Replayed', 'true');
+
+    expect($second->getContent())->toBe($first->getContent())
+        ->and($second->headers->get('Content-Type'))->toBe($first->headers->get('Content-Type'));
 
     expect($this->handlerCalls)->toBe(1)
         ->and(IdempotencyRecord::query()->count())->toBe(1);
@@ -230,6 +241,7 @@ it('prunes only rows older than 24 hours', function (): void {
         'path' => '/x',
         'request_hash' => str_repeat('a', 64),
         'status' => 'completed',
+        'lock_token' => (string) Str::uuid(),
         'locked_at' => now()->subHours($hoursAgo),
         'created_at' => now()->subHours($hoursAgo),
     ]);
@@ -240,4 +252,57 @@ it('prunes only rows older than 24 hours', function (): void {
     Artisan::call('idempotency:prune');
 
     expect(IdempotencyRecord::query()->pluck('key')->all())->toBe(['recent']);
+});
+
+it('does not let a slow original overwrite or delete the row of the request that took over', function (int $originalStatus, bool $ownerCompleted): void {
+    $takeoverToken = (string) Str::uuid();
+
+    Route::middleware(['api', 'auth:sanctum', 'idempotent'])
+        ->post('/api/_test/idempotent-slow', function () use ($originalStatus, $ownerCompleted, $takeoverToken) {
+            // While this (original) request is slow, another request takes over: it either
+            // is still running (new token only) or has already stored its result.
+            DB::table('idempotency_keys')->update($ownerCompleted ? [
+                'lock_token' => $takeoverToken,
+                'status' => 'completed',
+                'response_status' => 201,
+                'response_body' => '{"data":"takeover"}',
+                'response_content_type' => 'application/json',
+                'completed_at' => now(),
+            ] : ['lock_token' => $takeoverToken]);
+
+            return response()->json(['data' => 'original'], $originalStatus);
+        });
+
+    idempotentPost($this, $this->token, 'slow-1', uri: '/api/_test/idempotent-slow')
+        ->assertStatus($originalStatus)
+        ->assertJsonPath('data', 'original');
+
+    $row = IdempotencyRecord::query()->sole();
+
+    expect($row->lock_token)->toBe($takeoverToken)
+        ->and($row->status)->toBe($ownerCompleted ? 'completed' : 'processing')
+        ->and($row->response_status)->toBe($ownerCompleted ? 201 : null)
+        ->and($row->getRawOriginal('response_body'))->toBe($ownerCompleted ? '{"data":"takeover"}' : null);
+})->with([
+    '2xx original, owner running' => [201, false],
+    '4xx original, owner running' => [409, false],
+    '5xx original, owner running' => [500, false],
+    '2xx original, owner completed' => [201, true],
+    '5xx original, owner completed' => [500, true],
+]);
+
+it('gives a taken-over row a new lock token', function (): void {
+    idempotentPost($this, $this->token, 'token-1')->assertCreated();
+
+    $before = IdempotencyRecord::query()->sole()->lock_token;
+
+    DB::table('idempotency_keys')->update([
+        'status' => 'processing',
+        'completed_at' => null,
+        'locked_at' => now()->subSeconds(60),
+    ]);
+
+    idempotentPost($this, $this->token, 'token-1')->assertCreated();
+
+    expect(IdempotencyRecord::query()->sole()->lock_token)->not->toBe($before);
 });

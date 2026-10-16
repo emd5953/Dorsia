@@ -20,7 +20,9 @@ return new class extends Migration
             $table->char('request_hash', 64);
             $table->string('status', 16);
             $table->smallInteger('response_status')->nullable();
-            $table->jsonb('response_body')->nullable();
+            $table->text('response_body')->nullable();
+            $table->string('response_content_type', 100)->nullable();
+            $table->uuid('lock_token');
             $table->timestampTz('locked_at');
             $table->timestampTz('completed_at')->nullable();
             $table->timestampTz('created_at');

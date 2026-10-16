@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property string $request_hash
  * @property string $status
  * @property int|null $response_status
+ * @property string $lock_token
  * @property CarbonImmutable $locked_at
  * @property CarbonImmutable|null $completed_at
  * @property CarbonImmutable $created_at
