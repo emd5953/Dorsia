@@ -21,8 +21,9 @@ Out of scope for this run: memberships and coupon grants (step 9), admin API (st
 | Payments & real-time | `PaymentGateway` and `FakeGateway`, webhooks; outbox publisher and Reverb channels | 6, 7 |
 | Performance | k6 drop script, drop seeder, results; hands fixes to the owning engineer | 8 |
 
-- Each engineer works in its own git worktree on a feature branch, with its own `COMPOSE_PROJECT_NAME` and port offsets.
-- Engineers edit only their own module directories. Cross-module needs go to the architect as a contract change.
+- Each engineer works in its own git worktree on a feature branch, with its own `COMPOSE_PROJECT_NAME` and port offsets: `bin/worktree-env <NN>` with NN = ticket number (`00` is the `build/v1` integration checkout). See contracts C§14.
+- Engineers edit only the files listed in their ticket. Cross-module needs go to the architect as a contract change.
+- Platform owns every shared root file (`composer.json`, `bootstrap/`, `config/`, `docker-compose.yml`, `Makefile`, `tests/Pest.php`, CI) plus `app/Shared`, which includes members and auth. Tickets name the few exceptions (one compose line for 07, the `drop*` Makefile targets for 08).
 
 ## Decisions and escalation
 
@@ -40,11 +41,13 @@ It runs as a background terminal process, with its log in the scratchpad. Codex 
 ## Order
 
 1. Architect: contracts and tickets.
-2. Platform skeleton. Everything else depends on it.
-3. In parallel: Inventory and holds, Ledger, Pricing, Payments gateway.
-4. Booking confirm and cancel, plus real-time outbox.
-5. k6 drop test.
+2. Platform skeleton (ticket 01). Everything else depends on it.
+3. In parallel: Inventory and holds (02), Ledger (03), Pricing (04), Payments gateway (05).
+4. Booking confirm and cancel (06), plus real-time outbox (07).
+5. k6 drop test (08).
 6. Final product eval, then PR `build/v1` → `main`.
+
+Tickets live in [tickets/](tickets/). After any merge into `build/v1`, every in-flight branch rebases onto `build/v1` before its next eval round, so the full-suite gate runs against what is actually merged.
 
 ## Module eval
 
@@ -55,7 +58,7 @@ Every engineer is paired with an eval agent. Each round writes `evals/<module>-r
 1. Pest green for the module and the full suite, on real Postgres.
 2. PHPStan level 8 and Pint clean.
 3. Arch test: no imports of another module's internals.
-4. Every contract item for the module exists with the agreed signature.
+4. Every contract item for the module exists with the agreed signature, checked by `tests/Arch/Contracts/<Module>ContractTest.php` plus a read of contracts.md.
 
 **Score (100).**
 
