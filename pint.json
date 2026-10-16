@@ -1,5 +1,6 @@
 {
     "preset": "laravel",
+    "notName": ["frankenphp-worker.php"],
     "rules": {
         "declare_strict_types": true
     }
