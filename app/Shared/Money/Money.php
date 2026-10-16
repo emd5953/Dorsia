@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Shared\Money;
 
 use InvalidArgumentException;
+use OverflowException;
 
 final readonly class Money
 {
@@ -32,7 +33,7 @@ final readonly class Money
     {
         $this->assertSameCurrency($other);
 
-        return new self($this->cents + $other->cents, $this->currency);
+        return new self(self::checked($this->cents + $other->cents), $this->currency);
     }
 
     public function subtract(Money $other): self
@@ -48,7 +49,7 @@ final readonly class Money
             throw new InvalidArgumentException('Money cannot be multiplied by a negative factor.');
         }
 
-        return new self($this->cents * $factor, $this->currency);
+        return new self(self::checked($this->cents * $factor), $this->currency);
     }
 
     public function min(Money $other): self
@@ -60,7 +61,11 @@ final readonly class Money
 
     public function bps(int $basisPoints): self
     {
-        return new self(intdiv($this->cents * $basisPoints, 10000), $this->currency);
+        if ($basisPoints < 0) {
+            throw new InvalidArgumentException('Basis points cannot be negative.');
+        }
+
+        return new self(intdiv(self::checked($this->cents * $basisPoints), 10000), $this->currency);
     }
 
     public function isZero(): bool
@@ -98,6 +103,18 @@ final readonly class Money
     public function toArray(): array
     {
         return ['cents' => $this->cents, 'currency' => $this->currency->value];
+    }
+
+    /**
+     * PHP turns int overflow into float; refuse it instead of letting a TypeError escape.
+     */
+    private static function checked(int|float $value): int
+    {
+        if (! is_int($value)) {
+            throw new OverflowException('Money amount overflows the integer range.');
+        }
+
+        return $value;
     }
 
     private function assertSameCurrency(Money $other): void

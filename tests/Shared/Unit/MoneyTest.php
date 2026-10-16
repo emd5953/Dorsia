@@ -92,6 +92,20 @@ it('rejects mixed currencies in every binary operation', function (string $metho
     expect($usd->equals($eur))->toBeFalse();
 })->with(['add', 'subtract', 'min', 'greaterThan', 'greaterThanOrEqual']);
 
+it('rejects negative basis points', function (): void {
+    Money::of(100, 'USD')->bps(-1);
+})->throws(InvalidArgumentException::class);
+
+it('throws OverflowException instead of a TypeError on integer overflow', function (string $operation): void {
+    $big = Money::of(PHP_INT_MAX, 'USD');
+
+    match ($operation) {
+        'add' => $big->add(Money::of(1, 'USD')),
+        'multiply' => $big->multiply(2),
+        'bps' => $big->bps(10001),
+    };
+})->with(['add', 'multiply', 'bps'])->throws(OverflowException::class);
+
 it('compares', function (): void {
     $a = Money::of(100, 'USD');
     $b = Money::of(200, 'USD');
