@@ -11,6 +11,17 @@
           }
         ]
       }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/enrinjr/Documents/GitHub/Dorsia/.claude/hooks/codex-handoff.sh --hook",
+            "timeout": 30
+          }
+        ]
+      }
     ]
   },
   "worktree": {

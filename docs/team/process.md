@@ -30,6 +30,13 @@ Out of scope for this run: memberships and coupon grants (step 9), admin API (st
 - Engineers and eval agents send design or scope questions to the architect and build to its answer. Only scope changes reach the user.
 - A project hook (`.claude/hooks/guard.mjs`) blocks force pushes, pushes to `main`, `rm -r` outside the repo, worktrees or scratchpad, `docker system prune`, removing non-project Docker volumes, `curl | sh`, and file writes outside those roots. A blocked agent works around it or asks the orchestrator.
 
+## Codex split and handoff
+
+- **Who does what.** From ticket 06 on, and for all rework rounds, engineers run on Codex (`codex exec`). Claude keeps the architect and the eval agents.
+- **Context.** Codex can't see Claude conversations. Every engineer keeps `HANDOFF.md` at its worktree root (uncommitted), updated at each commit: done and remaining checklist, decisions not yet in the contract, failing tests, exact next step.
+- **Commits.** Codex's sandbox makes `.git` read-only, so Codex leaves changes uncommitted; the orchestrator commits them after the eval.
+- **Automatic handoff.** Every running task is registered in `.claude/handoff/tasks/<id>.json` (worktree, brief, status). A `StopFailure` hook runs `.claude/hooks/codex-handoff.sh --hook`; on a usage-limit failure it starts `codex exec` for every task still marked `active`. Logs and results go to `.claude/handoff/logs/`.
+
 ## Fallback when Claude runs out
 
 If any agent stops on a usage or rate limit, the orchestrator reruns the same brief with Codex CLI in the agent's worktree:
