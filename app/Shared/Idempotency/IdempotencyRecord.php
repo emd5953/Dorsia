@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Shared\Idempotency;
 
+use App\Shared\Support\Timestamps;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 
@@ -28,6 +29,8 @@ final class IdempotencyRecord extends Model
     public const UPDATED_AT = null;
 
     protected $table = 'idempotency_keys';
+
+    protected $dateFormat = Timestamps::FORMAT;
 
     protected $guarded = [];
 

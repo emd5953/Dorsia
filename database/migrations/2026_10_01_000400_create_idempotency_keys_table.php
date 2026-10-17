@@ -23,9 +23,9 @@ return new class extends Migration
             $table->text('response_body')->nullable();
             $table->string('response_content_type', 100)->nullable();
             $table->uuid('lock_token');
-            $table->timestampTz('locked_at');
-            $table->timestampTz('completed_at')->nullable();
-            $table->timestampTz('created_at');
+            $table->timestampTz('locked_at', 6);
+            $table->timestampTz('completed_at', 6)->nullable();
+            $table->timestampTz('created_at', 6);
 
             $table->unique(['member_id', 'key']);
             $table->index('created_at');

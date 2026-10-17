@@ -17,8 +17,8 @@ return new class extends Migration
             $table->jsonb('payload');
             $table->integer('attempts')->default(0);
             $table->text('last_error')->nullable();
-            $table->timestampTz('created_at');
-            $table->timestampTz('published_at')->nullable();
+            $table->timestampTz('created_at', 6);
+            $table->timestampTz('published_at', 6)->nullable();
 
             $table->index('published_at');
         });

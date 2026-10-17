@@ -158,6 +158,24 @@ it('still treats key order and whitespace as irrelevant', function (): void {
     expect($this->handlerCalls)->toBe(1);
 });
 
+it('hashes form-encoded bodies independently of key order, nested keys included', function (): void {
+    $send = fn (array $form): TestResponse => $this->call('POST', HARDENING_URI, $form, [], [], [
+        'HTTP_ACCEPT' => 'application/json',
+        'HTTP_AUTHORIZATION' => 'Bearer '.$this->token,
+        'HTTP_IDEMPOTENCY_KEY' => 'form-1',
+    ]);
+
+    $send(['a' => '1', 'b' => ['y' => '1', 'x' => '2']])->assertCreated();
+
+    app('auth')->forgetGuards();
+
+    $send(['b' => ['x' => '2', 'y' => '1'], 'a' => '1'])
+        ->assertCreated()
+        ->assertHeader('Idempotent-Replayed', 'true');
+
+    expect($this->handlerCalls)->toBe(1);
+});
+
 it('logs a warning when ownership was lost to a takeover', function (): void {
     Log::spy();
 

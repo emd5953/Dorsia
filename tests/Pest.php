@@ -23,6 +23,7 @@ pest()->extend(TestCase::class)
         // Deferred constraint triggers never fire inside the rolled-back wrapper transaction.
         DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
         Redis::connection()->flushdb();
+        Redis::connection('cache')->flushdb();
     });
 
 pest()->extend(TestCase::class)

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Shared\Idempotency;
 
+use App\Shared\Support\Timestamps;
 use Illuminate\Console\Command;
 
 final class PruneIdempotencyKeys extends Command
@@ -16,7 +17,7 @@ final class PruneIdempotencyKeys extends Command
     {
         $cutoff = now()->subHours((int) config('idempotency.retention_hours'));
 
-        $deleted = IdempotencyRecord::query()->where('created_at', '<', $cutoff)->delete();
+        $deleted = IdempotencyRecord::query()->where('created_at', '<', Timestamps::bind($cutoff))->delete();
 
         $this->info("Pruned {$deleted} idempotency keys.");
 

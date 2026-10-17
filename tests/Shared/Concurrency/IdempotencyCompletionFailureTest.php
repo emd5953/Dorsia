@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Shared\Idempotency\IdempotencyRecord;
 use App\Shared\Members\Member;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 
@@ -27,6 +28,13 @@ it('returns the handler response and frees the key when storing the response fai
     expect(IdempotencyRecord::query()->count())->toBe(0);
 
     Log::shouldHaveReceived('warning')
-        ->withArgs(fn (string $message): bool => str_contains($message, 'completion failed'))
+        ->withArgs(function (string $message, array $context): bool {
+            // The exception message embeds the SQL bindings (response body); it must not be logged.
+            return str_contains($message, 'completion failed')
+                && $context['exception'] === QueryException::class
+                && $context['sqlstate'] === '22001'
+                && ! str_contains(json_encode($context, JSON_THROW_ON_ERROR), '{"data":1}')
+                && ! array_key_exists('error', $context);
+        })
         ->once();
 });

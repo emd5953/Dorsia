@@ -15,11 +15,24 @@ use Throwable;
 
 final class Concurrency
 {
-    private const CHILD_TIMEOUT_SECONDS = 30;
+    /** Per-child limit; a child still running after this is killed by SIGALRM and reported. */
+    public static int $childTimeoutSeconds = 30;
+
+    /**
+     * Test seam for this helper's own tests: called in each child with its index, before the
+     * child announces itself at the barrier.
+     *
+     * @var (Closure(int): void)|null
+     */
+    public static ?Closure $beforeBarrier = null;
 
     /**
      * Runs each closure in its own forked process after DB::purge()/reconnect and Redis purge.
      * Closures must return serializable values. Returns results in order.
+     *
+     * Every child connects, announces itself, then waits until all siblings have arrived, so
+     * they really collide. A child that fails before the barrier still announces itself, so
+     * siblings are never stranded; its real error is what run() throws.
      *
      * @param  array<int, Closure>  $closures
      * @return array<int, mixed>
@@ -31,46 +44,69 @@ final class Concurrency
 
         $closures = array_values($closures);
         $count = count($closures);
+        $timeout = self::$childTimeoutSeconds;
         $barrier = sys_get_temp_dir().'/dorsia-barrier-'.bin2hex(random_bytes(6));
         mkdir($barrier);
 
-        // Every child connects, announces itself, then waits until all siblings have arrived,
-        // so they really collide. A child that outlives CHILD_TIMEOUT_SECONDS is killed by SIGALRM.
         $wrapped = [];
 
         foreach ($closures as $index => $closure) {
-            $wrapped[] = function () use ($closure, $index, $count, $barrier): array {
+            $wrapped[] = function () use ($closure, $index, $count, $barrier, $timeout): array {
                 pcntl_signal(SIGALRM, SIG_DFL);
-                pcntl_alarm(self::CHILD_TIMEOUT_SECONDS);
+                pcntl_alarm($timeout);
+
+                file_put_contents("{$barrier}/pid-{$index}", (string) getmypid());
+
+                $failure = null;
 
                 try {
-                    DB::connection()->getPdo();
-                    touch("{$barrier}/{$index}");
-
-                    while (count(scandir($barrier) ?: []) - 2 < $count) {
-                        usleep(500);
+                    if (self::$beforeBarrier !== null) {
+                        (self::$beforeBarrier)($index);
                     }
 
-                    return ['ok' => true, 'value' => $closure()];
+                    DB::connection()->getPdo();
                 } catch (Throwable $e) {
-                    return ['ok' => false, 'error' => $e::class.': '.$e->getMessage()];
+                    $failure = $e;
+                } finally {
+                    touch("{$barrier}/arrived-{$index}");
                 }
+
+                while (count(glob("{$barrier}/arrived-*") ?: []) < $count) {
+                    usleep(500);
+                }
+
+                if ($failure === null) {
+                    try {
+                        return ['ok' => true, 'value' => $closure()];
+                    } catch (Throwable $e) {
+                        $failure = $e;
+                    }
+                }
+
+                return ['ok' => false, 'error' => $failure::class.': '.$failure->getMessage()];
             };
         }
 
+        $crashed = true;
+
         try {
             $results = Fork::new()->run(...$wrapped);
+            $crashed = false;
 
             // Fork collects results in completion order, keyed by closure index.
             ksort($results);
 
             $values = [];
+            $missing = [];
 
             foreach ($results as $index => $result) {
                 if (! is_array($result) || ! array_key_exists('ok', $result)) {
-                    throw new RuntimeException('Concurrency child '.$index.' produced no result (timed out after '.self::CHILD_TIMEOUT_SECONDS.'s or was killed).');
+                    $missing[] = $index;
+
+                    continue;
                 }
 
+                // A real error beats a timeout report from another child.
                 if ($result['ok'] !== true) {
                     throw new RuntimeException('Concurrency child '.$index.' failed: '.$result['error']);
                 }
@@ -78,8 +114,25 @@ final class Concurrency
                 $values[] = $result['value'];
             }
 
+            if ($missing !== []) {
+                throw new RuntimeException('Concurrency child '.implode(', ', $missing).' produced no result (timed out after '.$timeout.'s or was killed).');
+            }
+
             return $values;
         } finally {
+            if ($crashed) {
+                // Fork aborted while siblings may still run: terminate and reap them before
+                // the barrier directory disappears under them.
+                foreach (glob("{$barrier}/pid-*") ?: [] as $file) {
+                    $pid = (int) file_get_contents($file);
+
+                    if ($pid > 0) {
+                        posix_kill($pid, SIGKILL);
+                        pcntl_waitpid($pid, $status);
+                    }
+                }
+            }
+
             foreach (glob("{$barrier}/*") ?: [] as $file) {
                 unlink($file);
             }
