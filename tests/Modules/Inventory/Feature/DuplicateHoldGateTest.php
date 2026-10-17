@@ -13,8 +13,11 @@ it('answers a duplicate hold of the same member without taking or touching a gat
     Fixtures::hold($slot, $member);
 
     $commands = [];
+    // Only gate traffic counts; the per-key hold lock (hold_key:*) is expected.
     Fixtures::listenRedis(function (CommandExecuted $command) use (&$commands): void {
-        $commands[] = strtolower($command->command);
+        if (str_contains(json_encode($command->parameters, JSON_THROW_ON_ERROR), 'slot_gate:')) {
+            $commands[] = strtolower($command->command);
+        }
     });
 
     expect(fn () => Fixtures::hold($slot, $member))->toThrow(ActiveHoldExistsException::class);

@@ -14,6 +14,7 @@ use App\Modules\Inventory\Exceptions\SlotNotFoundException;
 use App\Modules\Inventory\Exceptions\SlotUnavailableException;
 use App\Modules\Inventory\Exceptions\SoldOutException;
 use App\Modules\Inventory\Support\ExpireOverdueHolds;
+use App\Modules\Inventory\Support\HoldCloser;
 use App\Modules\Inventory\Support\HoldRows;
 use App\Modules\Inventory\Support\SlotGate;
 use App\Modules\Inventory\Support\SlotRows;
@@ -21,9 +22,14 @@ use App\Shared\Outbox\Outbox;
 use App\Shared\Outbox\OutboxTopic;
 use App\Shared\Support\Timestamps;
 use App\Shared\Support\Transactions;
+use Illuminate\Cache\Lock as CacheLock;
+use Illuminate\Contracts\Cache\LockProvider;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use LogicException;
 use stdClass;
 use Throwable;
 
@@ -35,6 +41,7 @@ class HoldSlot
         private readonly Outbox $outbox,
         private readonly SlotGate $gate,
         private readonly ExpireOverdueHolds $expireOverdue,
+        private readonly HoldCloser $closer,
     ) {}
 
     /**
@@ -53,6 +60,25 @@ class HoldSlot
     {
         Transactions::assertNone();
 
+        // Calls sharing one idempotency key run one at a time, so the later ones replay instead of
+        // taking gate units of their own (C§6.1 step 5).
+        $lock = $this->keyLock($input->idempotencyKey);
+        $locked = $this->acquire($lock);
+
+        try {
+            return $this->hold($input, $inTransaction);
+        } finally {
+            if ($locked) {
+                $lock->release();
+            }
+        }
+    }
+
+    /**
+     * @param  (callable(HoldData): void)|null  $inTransaction
+     */
+    private function hold(HoldSlotInput $input, ?callable $inTransaction): HoldData
+    {
         $replay = $this->replay($input->idempotencyKey);
 
         if ($replay !== null) {
@@ -63,9 +89,10 @@ class HoldSlot
 
         $this->validate($slot, $input->partySize);
 
-        // A member's own live hold means this is a duplicate: say so before it takes a gate unit that
-        // other members could then be refused for.
-        if ($this->hasLiveHold($input)) {
+        // One query for the member's own active holds here: a live one makes this a duplicate (say so
+        // before it takes a gate unit other members could then be refused for); an overdue, unswept one
+        // would only trip the unique index, so expire it now, before any unit is taken.
+        if ($this->settleOwnHolds($input)) {
             throw new ActiveHoldExistsException;
         }
 
@@ -86,6 +113,33 @@ class HoldSlot
             $this->releaseUnit($unitTaken, $input->slotId);
 
             throw $e;
+        }
+    }
+
+    private function keyLock(string $idempotencyKey): CacheLock
+    {
+        $store = Cache::store('redis')->getStore();
+
+        if (! $store instanceof LockProvider) {
+            throw new LogicException('The redis cache store must support locks.');
+        }
+
+        $lock = $store->lock('hold_key:'.hash('sha256', $idempotencyKey), (int) config('inventory.hold_key_lock.seconds'));
+
+        if (! $lock instanceof CacheLock) {
+            throw new LogicException('The redis cache store must return blocking locks.');
+        }
+
+        return $lock->betweenBlockedAttemptsSleepFor(10);
+    }
+
+    /** Waits up to hold_key_lock.wait_seconds; on timeout proceeds unlocked (the unique key still decides). */
+    private function acquire(CacheLock $lock): bool
+    {
+        try {
+            return (bool) $lock->block((int) config('inventory.hold_key_lock.wait_seconds'));
+        } catch (LockTimeoutException) {
+            return false;
         }
     }
 
@@ -153,16 +207,19 @@ class HoldSlot
     private function place(HoldSlotInput $input, stdClass $slot, ?callable $inTransaction): HoldData
     {
         $expiredOverdue = false;
+        $retriedActive = false;
         $retriedDeadlock = false;
 
         while (true) {
             try {
                 $hold = $this->attempt($input, $slot, $inTransaction);
             } catch (UniqueConstraintViolationException $e) {
-                // An overdue, unswept hold of this member still counts as active in the index: expire it, retry once.
-                if (! $expiredOverdue && str_contains($e->getMessage(), self::ONE_ACTIVE_INDEX) && $this->hasOverdueHold($input)) {
-                    $expiredOverdue = true;
-                    $this->expireOverdue->handle($input->slotId);
+                // The one-active-hold index fired: an overdue hold of this member may still count as active
+                // (a sibling request may already have expired it). Clear it and retry once; a live hold
+                // fails the retry the same way and becomes ActiveHoldExistsException in handle().
+                if (! $retriedActive && str_contains($e->getMessage(), self::ONE_ACTIVE_INDEX)) {
+                    $retriedActive = true;
+                    $this->settleOwnHolds($input);
 
                     continue;
                 }
@@ -244,24 +301,31 @@ class HoldSlot
         });
     }
 
-    private function hasLiveHold(HoldSlotInput $input): bool
+    /**
+     * Expires the member's own overdue active holds on this slot.
+     *
+     * @return bool whether the member still has a live (unexpired) active hold on it
+     */
+    private function settleOwnHolds(HoldSlotInput $input): bool
     {
-        return DB::table('holds')
+        $holds = DB::table('holds')
             ->where('slot_id', $input->slotId)
             ->where('member_id', $input->memberId)
             ->where('status', HoldStatus::Active->value)
-            ->where('expires_at', '>', Timestamps::bind(now()))
-            ->exists();
-    }
+            ->get(['id', 'expires_at']);
 
-    private function hasOverdueHold(HoldSlotInput $input): bool
-    {
-        return DB::table('holds')
-            ->where('slot_id', $input->slotId)
-            ->where('member_id', $input->memberId)
-            ->where('status', HoldStatus::Active->value)
-            ->where('expires_at', '<=', Timestamps::bind(now()))
-            ->exists();
+        $now = now();
+        $live = false;
+
+        foreach ($holds as $hold) {
+            if ($now->lessThan(SlotRows::time($hold->expires_at))) {
+                $live = true;
+            } else {
+                $this->closer->close((int) $hold->id, HoldStatus::Expired, 'expired', onlyIfOverdue: true);
+            }
+        }
+
+        return $live;
     }
 
     private function replay(string $idempotencyKey): ?HoldData

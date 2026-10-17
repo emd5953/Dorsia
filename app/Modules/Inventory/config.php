@@ -14,4 +14,8 @@ return [
         'rebuild_recent_minutes' => 2,
     ],
     'sweep_batch' => 500,
+    'hold_key_lock' => [
+        'seconds' => 10,
+        'wait_seconds' => 5,
+    ],
 ];

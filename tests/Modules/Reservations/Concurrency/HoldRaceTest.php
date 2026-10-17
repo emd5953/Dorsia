@@ -48,7 +48,7 @@ function assertNoServerErrors(array $responses): void
     }
 }
 
-it('lets 40 members race a capacity-5 slot: exactly 5 holds, 35 sold_out, no 5xx, gate at 0', function (): void {
+it('lets 40 members race a capacity-5 slot: exactly 5 holds, 35 sold_out, no 5xx, gate never below Postgres', function (): void {
     $slot = Fixtures::slot(['capacity' => 5]);
     $tokens = raceTokens(40);
 
@@ -66,11 +66,13 @@ it('lets 40 members race a capacity-5 slot: exactly 5 holds, 35 sold_out, no 5xx
         ->and(Slot::query()->findOrFail($slot->id)->held_count)->toBe(5)
         ->and(Hold::query()->where('status', 'active')->count())->toBe(5)
         ->and(Hold::query()->distinct('member_id')->count('member_id'))->toBe(5)
-        ->and(Fixtures::gate($slot))->toBe(0)
         ->and(OutboxEvent::query()->where('topic', 'slot.held')->count())->toBe(5);
+
+    // C§6.1: a refresh SET may overwrite in-flight decrements, so the gate can end too high, never too low.
+    expect(Fixtures::gate($slot))->not->toBeNull()->toBeGreaterThanOrEqual(0);
 });
 
-it('still sells exactly 5 when the gate key is deleted just before firing, and rebuilds it to 0', function (): void {
+it('still sells exactly 5 when the gate key is deleted just before firing, and rebuilds it (never below Postgres)', function (): void {
     $slot = Fixtures::slot(['capacity' => 5]);
     $tokens = raceTokens(40);
     Redis::connection()->flushdb();
@@ -89,8 +91,10 @@ it('still sells exactly 5 when the gate key is deleted just before firing, and r
 
     expect(tally($responses))->toBe(['201 ok' => 5, '409 sold_out' => 35])
         ->and(Slot::query()->findOrFail($slot->id)->held_count)->toBe(5)
-        ->and(Hold::query()->where('status', 'active')->count())->toBe(5)
-        ->and(Fixtures::gate($slot))->toBe(0);
+        ->and(Hold::query()->where('status', 'active')->count())->toBe(5);
+
+    // Rebuilt (key exists), and at or above Postgres truth (0 free tables): C§6.1 allows too high, never too low.
+    expect(Fixtures::gate($slot))->not->toBeNull()->toBeGreaterThanOrEqual(0);
 });
 
 it('creates exactly one hold for 20 identical requests from one member with one key', function (): void {
