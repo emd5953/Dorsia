@@ -20,12 +20,24 @@ final class HoldCloser
     public function __construct(private readonly Outbox $outbox, private readonly SlotGate $gate) {}
 
     /**
+     * Lock order is slot, then hold, the same as HoldSlot (slot update, then hold insert), so the two
+     * can never wait on each other.
+     *
      * @param  bool  $onlyIfOverdue  expire semantics: do nothing before expires_at
+     * @param  bool  $releaseGate  false when the caller rebuilds the gate from Postgres right after
      * @return bool true only if this call closed the hold
      */
-    public function close(int $holdId, HoldStatus $status, string $reason, bool $onlyIfOverdue): bool
+    public function close(int $holdId, HoldStatus $status, string $reason, bool $onlyIfOverdue, bool $releaseGate = true): bool
     {
-        return DB::transaction(function () use ($holdId, $status, $reason, $onlyIfOverdue): bool {
+        $slotId = DB::table('holds')->where('id', $holdId)->value('slot_id');
+
+        if ($slotId === null) {
+            return false;
+        }
+
+        return DB::transaction(function () use ($holdId, $slotId, $status, $reason, $onlyIfOverdue, $releaseGate): bool {
+            DB::table('slots')->where('id', $slotId)->lockForUpdate()->value('id');
+
             $hold = DB::table('holds')->where('id', $holdId)->lockForUpdate()->first();
 
             if ($hold === null || $hold->status !== HoldStatus::Active->value) {
@@ -56,9 +68,10 @@ final class HoldCloser
 
             $this->outbox->record(OutboxTopic::SlotReleased, SlotRows::payload($slot, $now, $reason));
 
-            $slotId = (int) $hold->slot_id;
-            $generation = $this->gate->generation($slotId);
-            DB::afterCommit(fn () => $this->gate->releaseIfGeneration($slotId, $generation));
+            if ($releaseGate) {
+                $slotId = (int) $hold->slot_id;
+                DB::afterCommit(fn () => $this->gate->release($slotId));
+            }
 
             return true;
         });

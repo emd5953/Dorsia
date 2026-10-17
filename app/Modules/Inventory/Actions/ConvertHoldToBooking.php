@@ -33,6 +33,23 @@ class ConvertHoldToBooking
     {
         Transactions::assertActive();
 
+        // Lock order drop, slot, hold: HoldSlot and HoldCloser take slot before hold, so none can wait on another.
+        $slotId = DB::table('holds')->where('id', $holdId)->where('member_id', $memberId)->value('slot_id');
+
+        if ($slotId === null) {
+            throw new HoldNotFoundException;
+        }
+
+        $slotId = (int) $slotId;
+        $dropId = DB::table('slots')->where('id', $slotId)->value('drop_id');
+
+        if ($dropId !== null) {
+            // Serialises conversions within a drop so the "last slot sold" check cannot be missed by two racers.
+            DB::table('drops')->where('id', $dropId)->lockForUpdate()->value('id');
+        }
+
+        DB::table('slots')->where('id', $slotId)->lockForUpdate()->value('id');
+
         $hold = DB::table('holds')->where('id', $holdId)->lockForUpdate()->first();
 
         if ($hold === null || (int) $hold->member_id !== $memberId) {
@@ -47,14 +64,6 @@ class ConvertHoldToBooking
 
         if (! $now->lessThan(SlotRows::time($hold->expires_at))) {
             throw new HoldExpiredException;
-        }
-
-        $slotId = (int) $hold->slot_id;
-        $dropId = DB::table('slots')->where('id', $slotId)->value('drop_id');
-
-        if ($dropId !== null) {
-            // Serialises conversions within a drop so the "last slot sold" check cannot be missed by two racers.
-            DB::table('drops')->where('id', $dropId)->lockForUpdate()->value('id');
         }
 
         DB::table('holds')->where('id', $holdId)->update([

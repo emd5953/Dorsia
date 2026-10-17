@@ -43,8 +43,7 @@ class ReleaseBooking
 
         $this->outbox->record(OutboxTopic::SlotReleased, SlotRows::payload($joined, $now, 'cancelled'));
 
-        $generation = $this->gate->generation($slotId);
-        DB::afterCommit(fn () => $this->gate->releaseIfGeneration($slotId, $generation));
+        DB::afterCommit(fn () => $this->gate->release($slotId));
 
         return SlotRows::toData($joined);
     }

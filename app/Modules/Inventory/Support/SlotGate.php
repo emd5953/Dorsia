@@ -27,32 +27,11 @@ local v = redis.call('GET', KEYS[1])
 if not v then return -2 end
 local n = redis.call('DECR', KEYS[1])
 if n < 0 then redis.call('INCR', KEYS[1]); return -1 end
-redis.call('INCR', KEYS[2])
-redis.call('EXPIRE', KEYS[2], ARGV[1])
 return n
 LUA;
 
     private const RELEASE = <<<'LUA'
 if redis.call('EXISTS', KEYS[1]) == 1 then return redis.call('INCR', KEYS[1]) end
-return nil
-LUA;
-
-    private const COMPLETE_ATTEMPT = <<<'LUA'
-local n = redis.call('GET', KEYS[1])
-if not n then return 0 end
-if tonumber(n) <= 1 then redis.call('DEL', KEYS[1]); return 0 end
-return redis.call('DECR', KEYS[1])
-LUA;
-
-    private const REBUILD = <<<'LUA'
-redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
-return redis.call('INCR', KEYS[2])
-LUA;
-
-    private const RELEASE_IF_GENERATION = <<<'LUA'
-if redis.call('EXISTS', KEYS[1]) == 1 and tonumber(redis.call('GET', KEYS[2]) or '0') == tonumber(ARGV[1]) then
-  return redis.call('INCR', KEYS[1])
-end
 return nil
 LUA;
 
@@ -63,13 +42,7 @@ LUA;
      */
     public function acquire(int $slotId): int
     {
-        return (int) $this->connection()->command('eval', [self::ACQUIRE, [$this->key($slotId), $this->pendingKey($slotId), max(1, (int) config('inventory.gate.refresh_seconds'))], 2]);
-    }
-
-    /** Clears this request's in-flight reservation after its database transaction settles. */
-    public function completeAttempt(int $slotId): void
-    {
-        $this->connection()->command('eval', [self::COMPLETE_ATTEMPT, [$this->pendingKey($slotId)], 1]);
+        return (int) $this->connection()->command('eval', [self::ACQUIRE, [$this->key($slotId)], 1]);
     }
 
     /** Returns one unit; does nothing when the key is missing. */
@@ -78,24 +51,11 @@ LUA;
         $this->connection()->command('eval', [self::RELEASE, [$this->key($slotId)], 1]);
     }
 
-    /** Snapshot used by after-commit callbacks to avoid double-applying a release after a rebuild. */
-    public function generation(int $slotId): int
-    {
-        $generation = $this->connection()->command('get', [$this->generationKey($slotId)]);
-
-        return is_numeric($generation) ? (int) $generation : 0;
-    }
-
-    public function releaseIfGeneration(int $slotId, int $generation): void
-    {
-        $this->connection()->command('eval', [self::RELEASE_IF_GENERATION, [$this->key($slotId), $this->generationKey($slotId), $generation], 2]);
-    }
-
     /** Rebuild once per refresh window after a shed request or a Postgres rejection. */
     public function refresh(int $slotId): bool
     {
         $seconds = max(1, (int) config('inventory.gate.refresh_seconds'));
-        $won = $this->connection()->command('set', ["slot_gate:{$slotId}:refresh", '1', ['NX', 'EX' => $seconds]]);
+        $won = $this->connection()->command('set', [$this->refreshKey($slotId), '1', ['NX', 'EX' => $seconds]]);
 
         return ($won === 'OK' || $won === true) && $this->rebuild($slotId, force: true);
     }
@@ -112,7 +72,8 @@ LUA;
      * Rebuilds the counter as capacity - booked - held from Postgres, under a lock.
      *
      * Without $force an existing key is left alone (double-checked under the lock), and a caller that
-     * loses the lock race waits for the winner's key instead of rebuilding again. With $force (Postgres
+     * loses the lock race polls for the winner's key for at most inventory.gate.rebuild_wait_ms instead
+     * of rebuilding again. With $force (Postgres
      * just proved the counter wrong) the value is always overwritten; a caller that loses the lock
      * race skips, because someone else is already rebuilding.
      *
@@ -130,7 +91,7 @@ LUA;
         $lock = $store->lock("slot_gate:{$slotId}:lock", $seconds);
 
         if (! $lock->get()) {
-            return $force ? $this->value($slotId) !== null : $this->waitForKey($slotId, $seconds);
+            return $force ? $this->value($slotId) !== null : $this->waitForKey($slotId, (int) config('inventory.gate.rebuild_wait_ms'));
         }
 
         try {
@@ -138,7 +99,7 @@ LUA;
                 return true;
             }
 
-            app(ExpireOverdueHolds::class)->handle($slotId);
+            app(ExpireOverdueHolds::class)->handle($slotId, releaseGate: false);
 
             $slot = DB::table('slots')->where('id', $slotId)->first(['capacity', 'booked_count', 'held_count', 'starts_at']);
 
@@ -147,10 +108,9 @@ LUA;
             }
 
             $ttl = max(1, (int) now()->diffInSeconds(CarbonImmutable::parse((string) $slot->starts_at)->addDay(), false));
-            $pending = $this->connection()->command('get', [$this->pendingKey($slotId)]);
-            $value = max(0, (int) $slot->capacity - (int) $slot->booked_count - (int) $slot->held_count - (is_numeric($pending) ? (int) $pending : 0));
+            $value = max(0, (int) $slot->capacity - (int) $slot->booked_count - (int) $slot->held_count);
 
-            $this->connection()->command('eval', [self::REBUILD, [$this->key($slotId), $this->generationKey($slotId), $value, $ttl], 2]);
+            $this->connection()->command('set', [$this->key($slotId), $value, ['EX' => $ttl]]);
 
             return true;
         } finally {
@@ -158,9 +118,9 @@ LUA;
         }
     }
 
-    private function waitForKey(int $slotId, int $seconds): bool
+    private function waitForKey(int $slotId, int $milliseconds): bool
     {
-        $deadline = microtime(true) + $seconds;
+        $deadline = microtime(true) + $milliseconds / 1000;
 
         do {
             if ($this->value($slotId) !== null) {
@@ -183,13 +143,8 @@ LUA;
         return "slot_gate:{$slotId}";
     }
 
-    private function pendingKey(int $slotId): string
+    private function refreshKey(int $slotId): string
     {
-        return "slot_gate:{$slotId}:pending";
-    }
-
-    private function generationKey(int $slotId): string
-    {
-        return "slot_gate:{$slotId}:generation";
+        return "slot_gate:{$slotId}:refresh";
     }
 }

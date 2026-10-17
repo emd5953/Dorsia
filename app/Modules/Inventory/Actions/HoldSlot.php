@@ -21,6 +21,7 @@ use App\Shared\Outbox\Outbox;
 use App\Shared\Outbox\OutboxTopic;
 use App\Shared\Support\Timestamps;
 use App\Shared\Support\Transactions;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use stdClass;
@@ -62,47 +63,23 @@ class HoldSlot
 
         $this->validate($slot, $input->partySize);
 
-        [$unitTaken, $refreshOwner] = $this->takeGateUnit($input->slotId);
-        $pendingCompleted = false;
+        $unitTaken = $this->takeGateUnit($input->slotId);
 
         try {
             return $this->place($input, $slot, $inTransaction);
         } catch (SoldOutException $e) {
-            if ($unitTaken) {
-                $this->gate->completeAttempt($input->slotId);
-                $pendingCompleted = true;
-            }
-            // Postgres rejected: rebuild under the same guard; never return a gate unit.
-            $refreshOwner
-                ? $this->gate->rebuild($input->slotId, force: true)
-                : $this->gate->refresh($input->slotId);
+            // Postgres rejected: never return the unit; rebuild only if the 5 s refresh guard is free.
+            $this->gate->refresh($input->slotId);
+
             throw $e;
         } catch (UniqueConstraintViolationException $e) {
             $this->releaseUnit($unitTaken, $input->slotId);
-            if ($unitTaken) {
-                $this->gate->completeAttempt($input->slotId);
-                $pendingCompleted = true;
-            }
-            if ($refreshOwner) {
-                $this->gate->rebuild($input->slotId, force: true);
-            }
 
             return $this->replay($input->idempotencyKey) ?? throw new ActiveHoldExistsException;
         } catch (Throwable $e) {
             $this->releaseUnit($unitTaken, $input->slotId);
-            if ($unitTaken) {
-                $this->gate->completeAttempt($input->slotId);
-                $pendingCompleted = true;
-            }
-            if ($refreshOwner) {
-                $this->gate->rebuild($input->slotId, force: true);
-            }
 
             throw $e;
-        } finally {
-            if ($unitTaken && ! $pendingCompleted) {
-                $this->gate->completeAttempt($input->slotId);
-            }
         }
     }
 
@@ -123,10 +100,13 @@ class HoldSlot
         }
     }
 
-    /** @return array{bool, bool} whether a unit was taken and whether this request owns the refresh window */
-    private function takeGateUnit(int $slotId): array
+    /**
+     * @return bool whether a gate unit was taken (false when the counter could not be built: Postgres decides)
+     *
+     * @throws SoldOutException
+     */
+    private function takeGateUnit(int $slotId): bool
     {
-        $refreshOwner = false;
         $result = $this->gate->acquire($slotId);
 
         if ($result === SlotGate::MISSING) {
@@ -135,15 +115,19 @@ class HoldSlot
         }
 
         if ($result === SlotGate::SOLD_OUT) {
-            $refreshOwner = $this->gate->refresh($slotId);
-            if (! $refreshOwner || $this->gate->acquire($slotId) === SlotGate::SOLD_OUT) {
+            // Heal a wrong-low counter at most once per refresh window; everyone else is shed without a query.
+            if (! $this->gate->refresh($slotId)) {
                 throw new SoldOutException;
             }
 
-            $result = $this->gate->value($slotId);
+            $result = $this->gate->acquire($slotId);
+
+            if ($result === SlotGate::SOLD_OUT) {
+                throw new SoldOutException;
+            }
         }
 
-        return [$result !== SlotGate::MISSING, $refreshOwner];
+        return $result >= 0;
     }
 
     private function releaseUnit(bool $unitTaken, int $slotId): void
@@ -158,16 +142,30 @@ class HoldSlot
      *
      * @throws SoldOutException
      * @throws UniqueConstraintViolationException
+     * @throws QueryException
      */
     private function place(HoldSlotInput $input, stdClass $slot, ?callable $inTransaction): HoldData
     {
-        for ($attempt = 0; $attempt < 2; $attempt++) {
+        $expiredOverdue = false;
+        $retriedDeadlock = false;
+
+        while (true) {
             try {
                 $hold = $this->attempt($input, $slot, $inTransaction);
             } catch (UniqueConstraintViolationException $e) {
                 // An overdue, unswept hold of this member still counts as active in the index: expire it, retry once.
-                if ($attempt === 0 && str_contains($e->getMessage(), self::ONE_ACTIVE_INDEX) && $this->hasOverdueHold($input)) {
+                if (! $expiredOverdue && str_contains($e->getMessage(), self::ONE_ACTIVE_INDEX) && $this->hasOverdueHold($input)) {
+                    $expiredOverdue = true;
                     $this->expireOverdue->handle($input->slotId);
+
+                    continue;
+                }
+
+                throw $e;
+            } catch (QueryException $e) {
+                // Postgres picked this transaction as a deadlock victim: nothing was committed, try once more.
+                if (! $retriedDeadlock && self::isDeadlock($e)) {
+                    $retriedDeadlock = true;
 
                     continue;
                 }
@@ -179,12 +177,18 @@ class HoldSlot
                 return $hold;
             }
 
-            if ($attempt === 0) {
-                $this->expireOverdue->handle($input->slotId);
+            if ($expiredOverdue) {
+                throw new SoldOutException;
             }
-        }
 
-        throw new SoldOutException;
+            $expiredOverdue = true;
+            $this->expireOverdue->handle($input->slotId);
+        }
+    }
+
+    private static function isDeadlock(QueryException $e): bool
+    {
+        return ($e->errorInfo[0] ?? $e->getCode()) === '40P01';
     }
 
     /**
@@ -192,6 +196,7 @@ class HoldSlot
      * @return HoldData|null null when the conditional update found no free table
      *
      * @throws UniqueConstraintViolationException
+     * @throws QueryException
      */
     private function attempt(HoldSlotInput $input, stdClass $slot, ?callable $inTransaction): ?HoldData
     {
