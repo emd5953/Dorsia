@@ -11,6 +11,7 @@ use App\Modules\Inventory\Models\Hold;
 use App\Modules\Inventory\Models\Slot;
 use App\Modules\Inventory\Support\SlotGate;
 use Carbon\CarbonImmutable;
+use Illuminate\Redis\Events\CommandExecuted;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Redis;
@@ -281,9 +282,20 @@ it('reports no unit when the counter vanishes between the refresh and the second
     $other = Fixtures::member();
     Hold::query()->update(['expires_at' => now()->subSecond()]);
 
-    // Gate says full, Postgres frees the table through the refresh; a flush right after leaves the key missing.
+    // Gate says full, Postgres frees the table through the refresh; Redis is flushed right after the
+    // rebuild wrote the counter, so the second acquire finds the key missing and Postgres decides.
+    $flushed = 0;
+    Fixtures::listenRedis(function (CommandExecuted $command) use (&$flushed, $slot): void {
+        if ($flushed === 0 && strtolower($command->command) === 'set' && ($command->parameters[0] ?? null) === "slot_gate:{$slot->id}") {
+            $flushed++;
+            Redis::connection()->flushdb();
+        }
+    });
+
     $hold = Fixtures::hold($slot, $other);
 
-    expect($hold->status->value)->toBe('active')
-        ->and($slot->fresh()->held_count)->toBe(1);
+    expect($flushed)->toBe(1)
+        ->and($hold->status->value)->toBe('active')
+        ->and($slot->fresh()->held_count)->toBe(1)
+        ->and(Fixtures::gate($slot))->toBeNull();
 });

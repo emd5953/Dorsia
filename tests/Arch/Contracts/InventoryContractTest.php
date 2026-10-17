@@ -184,6 +184,8 @@ it('registers the C§13 commands and the config keys of C§12', function (): voi
         ->and(config('inventory.hold_ttl_seconds'))->toBe(300)
         ->and(config('inventory.hold_expiring_notice_seconds'))->toBe(60)
         ->and(config('inventory.gate.rebuild_lock_seconds'))->toBe(5)
+        ->and(config('inventory.gate.rebuild_wait_ms'))->toBe(200)
+        ->and(config('inventory.gate.refresh_seconds'))->toBe(5)
         ->and(config('inventory.gate.rebuild_recent_minutes'))->toBe(2)
         ->and(config('inventory.sweep_batch'))->toBe(500);
 });
