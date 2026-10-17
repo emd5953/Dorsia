@@ -13,9 +13,10 @@ case "$cwd" in "$REPO"*) ;; *) exit 0 ;; esac
 read -r pct resets < <(printf '%s' "$payload" | jq -r '
   [.rate_limits.five_hour, .rate_limits.seven_day] | map(select(. != null))
   | if length == 0 then "0 0" else (max_by(.used_percentage) | "\(.used_percentage) \(.resets_at)") end')
+mkdir -p "$REPO/.claude/handoff/logs"
+echo "$(date -u +%FT%TZ) ${pct}% (resets $resets)" > "$REPO/.claude/handoff/usage.last"
 [ "${pct%.*}" -ge "$THRESHOLD" ] 2>/dev/null || exit 0
 
-mkdir -p "$REPO/.claude/handoff/logs"
 lock="$REPO/.claude/handoff/switched-$resets"
 [ -e "$lock" ] && exit 0
 touch "$lock"
