@@ -107,7 +107,7 @@ All six providers are listed in `bootstrap/providers.php` by Platform in ticket 
   | Reservations | Shared, Inventory, Pricing, Wallet, Payments |
 
 - `App\Shared` must not use `App\Modules`.
-- Every file in `app/` declares `strict_types=1`. No `dd`, `dump`, `var_dump`, `ray`, `env()` outside `config/` and module `config.php`.
+- Every file in `app/` declares `strict_types=1`. No `dd`, `dump`, `var_dump`, `ray`. `env()` only in `config/`; module `config.php` files read env with `Illuminate\Support\Env::get()` (Larastan flags `env()` outside `config/`).
 - DTOs in `Data/` are `final readonly`. Action classes are **not** final (so other modules' tests can mock them) and expose exactly one public method, `handle()`.
 - No cross-module Eloquent relations, no cross-module `exists:` validation rules, no cross-module raw SQL. Cross-module references are plain `bigint` ids.
 - Foreign keys exist only within a module and to `members.id`.
@@ -728,7 +728,8 @@ final readonly class CancellationRefundInput
 
 final readonly class CancellationRefund
 {
-    public function __construct(public int $transactionId, public Money $memberCredit, public Money $platformShare, public Money $venueRetained) {}
+    /** $transactionId is null when nothing moves (member and platform shares both 0, e.g. a 100% forfeit config). */
+    public function __construct(public ?int $transactionId, public Money $memberCredit, public Money $platformShare, public Money $venueRetained) {}
 }
 
 final readonly class LedgerEntryData
@@ -759,7 +760,7 @@ final readonly class ReconciliationReport
 | --- | --- | --- | --- | --- |
 | `PlanSpend` | `handle(int $memberId, Money $amount): SpendPlan` | — | Coupon balance first, then credit, remainder card (§5 spend order). Read-only, no locks. | — |
 | `PostBookingPayment` | `__construct(Outbox $outbox)`<br>`handle(BookingPaymentInput $input): LedgerTransactionData` | Requires txn | Idempotency key `hold:{holdId}:booking`; replay returns the existing transaction. Locks member coupon/credit accounts `FOR UPDATE` (ascending id), re-checks balances ≥ plan amounts. Entries: debit member coupon `plan.coupon`, debit member credit `plan.credit`, debit system cash (card clearing) `plan.card`, credit venue_payable `plan.total()`; zero lines omitted. Writes `wallet.updated` if coupon or credit > 0. | `InsufficientWalletBalanceException` |
-| `PostCancellationRefund` | `__construct(Outbox $outbox)`<br>`handle(CancellationRefundInput $input): CancellationRefund` | Requires txn | Key `reservation:{reservationId}:cancel`; replay returns stored result. Early: debit venue_payable `amount`, credit member credit `amount`. Late: `member = amount.bps(wallet.late_cancel.member_bps)`, `platform = amount.bps(wallet.late_cancel.platform_bps)`; debit venue_payable `member + platform`, credit member credit `member`, credit platform `platform`; `venueRetained = amount - member - platform`. Writes `wallet.updated`. | — |
+| `PostCancellationRefund` | `__construct(Outbox $outbox)`<br>`handle(CancellationRefundInput $input): CancellationRefund` | Requires txn | Key `reservation:{reservationId}:cancel`; replay returns stored result. Early: debit venue_payable `amount`, credit member credit `amount`. Late: `member = amount.bps(wallet.late_cancel.member_bps)`, `platform = amount.bps(wallet.late_cancel.platform_bps)`; debit venue_payable `member + platform`, credit member credit `member`, credit platform `platform`; `venueRetained = amount - member - platform`. Zero legs are omitted (e.g. `platform_bps = 0` posts two lines). If `member + platform = 0`, no transaction is posted, `transactionId` is null, and no `wallet.updated` is written; otherwise writes `wallet.updated` if member credit moved. `PostTransaction` itself still rejects postings with fewer than two non-zero lines. | — |
 | `IssueGoodwillCredit` | `__construct(Outbox $outbox)`<br>`handle(int $memberId, Money $amount, string $idempotencyKey): LedgerTransactionData` | Own txn | Debit platform, credit member credit. No HTTP endpoint this run (seeders and tests only). | — |
 | `GetWalletBalance` | `handle(int $memberId, Currency $currency): WalletBalance` | — | Reads cached balances (missing accounts = 0). | — |
 | `ReconcileLedger` | `handle(bool $rebuild = false): ReconciliationReport` | Own txn if `$rebuild` | Re-sums entries per account in normal orientation, compares with `balance_cents`, checks global sum and per-transaction sums. `$rebuild` rewrites cached balances from entries. | — |
@@ -770,7 +771,7 @@ Internal (not public): `Support\PostTransaction` (the only code that inserts led
 
 Exception: `InsufficientWalletBalanceException` 409 `wallet_balance_changed`.
 
-Artisan: `wallet:reconcile {--rebuild}` prints the report as a table; exit code 0 when clean, 1 otherwise and logs `critical`. Scheduled daily 03:00 UTC.
+Artisan: `wallet:reconcile {--rebuild}` prints the report as a table; exit code 0 when clean, 1 otherwise and logs `critical`. With `--rebuild`, a run that found and repaired drift still exits 1 (the alert is not hidden); the next run exits 0. Scheduled daily 03:00 UTC.
 
 ### C§5.5 Payments (Payments & real-time)
 

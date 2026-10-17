@@ -44,6 +44,7 @@ Coupon grants, coupon lots and expiry, membership end, overage settlement, venue
 - [ ] Cancel early on 100000: venue_payable −100000 (balance decreases by 100000), member credit +100000.
 - [ ] Cancel late on 100000 with defaults: venue_payable debited 75000, member credit +50000, platform +25000, `venueRetained = 25000`. On 99999: member 49999, platform 24999, venue retains 25001 (D14).
 - [ ] Changing `wallet.late_cancel.*` config changes the split without code changes (test with 6000/2000).
+- [ ] Zero legs: with `platform_bps = 0` a late cancel posts two lines; with both bps = 0 it posts nothing and returns `transactionId = null`.
 - [ ] `PlanSpend`: coupon then credit then card; amount smaller than credit → card 0; zero balances → all card. (Coupon balance is seeded in a test by posting a balanced test transaction through `PostTransaction`, since nothing grants coupons yet.)
 - [ ] `PostBookingPayment` with a plan whose credit exceeds the current balance → `InsufficientWalletBalanceException` (409 `wallet_balance_changed`), nothing written.
 - [ ] Every posting action replays on its idempotency key: second call returns the same transaction id, no new entries, balances unchanged, no second `wallet.updated` row.
