@@ -115,6 +115,7 @@ it('is append-only: UPDATE and DELETE on entries and transactions fail', functio
     'update entry' => 'UPDATE ledger_entries SET amount_cents = 5',
     'delete entry' => 'DELETE FROM ledger_entries',
     'update transaction' => "UPDATE ledger_transactions SET metadata = '{\"x\":1}'",
+    'update transaction creation xid' => "UPDATE ledger_transactions SET created_xid = '1'::xid8",
     'delete transaction' => 'DELETE FROM ledger_transactions',
 ]);
 
@@ -146,9 +147,11 @@ it('keeps ledger account identity columns immutable', function (string $column, 
     );
 })->with([
     'owner_id' => ['owner_id', 99],
+    'id' => ['id', 99],
     'owner_type' => ['owner_type', 'system'],
     'currency' => ['currency', 'EUR'],
     'kind' => ['kind', 'platform'],
+    'created_at' => ['created_at', now()->addDay()],
 ]);
 
 it('enforces owner/kind pairing and one account per owner, kind and currency', function (): void {

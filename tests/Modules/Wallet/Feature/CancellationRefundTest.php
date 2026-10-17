@@ -158,6 +158,20 @@ it('posts two lines when platform share is zero', function (): void {
         ->and($refund->platformShare->cents)->toBe(0);
 });
 
+it('omits the member line when member share is zero and platform share is positive', function (): void {
+    config(['wallet.late_cancel.member_bps' => 0, 'wallet.late_cancel.platform_bps' => 2500]);
+
+    $refund = cancel(newMemberId(), 100000, true);
+
+    expect(walletEntries($refund->transactionId))->toBe([
+        'venue:7:venue_payable' => 25000,
+        'system:0:platform' => -25000,
+    ])
+        ->and($refund->memberCredit->cents)->toBe(0)
+        ->and($refund->platformShare->cents)->toBe(25000)
+        ->and($refund->venueRetained->cents)->toBe(75000);
+});
+
 it('refuses a split above 100% at runtime', function (): void {
     config(['wallet.late_cancel.member_bps' => 9000, 'wallet.late_cancel.platform_bps' => 2000]);
 
@@ -192,6 +206,17 @@ it('returns the stored result even if the replay asks for a different amount', f
     $second = cancel($member, 1000, false, 5);
 
     expect($second)->toEqual($first);
+});
+
+it('returns a prior non-zero cancellation when replayed with zero-share config', function (): void {
+    $member = newMemberId();
+    $first = cancel($member, 100000, true, 6);
+
+    config(['wallet.late_cancel.member_bps' => 0, 'wallet.late_cancel.platform_bps' => 0]);
+    $replay = cancel($member, 1, true, 6);
+
+    expect($replay)->toEqual($first)
+        ->and($replay->transactionId)->not->toBeNull();
 });
 
 it('throws LogicException outside a transaction', function (): void {

@@ -24,6 +24,8 @@ return new class extends Migration
             $table->index(['reference_type', 'reference_id']);
         });
 
+        DB::statement('ALTER TABLE ledger_transactions ADD COLUMN created_xid xid8 NOT NULL DEFAULT pg_current_xact_id()');
+
         DB::statement("ALTER TABLE ledger_transactions ADD CONSTRAINT ledger_transactions_type_valid CHECK (type IN ('booking', 'cancel_early', 'cancel_late', 'goodwill_credit'))");
     }
 

@@ -28,6 +28,15 @@ class PostCancellationRefund
         Transactions::assertActive();
 
         $amount = $input->amount;
+        $idempotencyKey = "reservation:{$input->reservationId}:cancel";
+        $existing = $this->postTransaction->existing($idempotencyKey);
+
+        if ($existing !== null) {
+            /** @var int $storedAmount */
+            $storedAmount = $existing->metadata['amount_cents'];
+
+            return $this->refundFrom($existing->transaction, Money::of($storedAmount, $existing->transaction->currency));
+        }
 
         $split = $input->late
             ? LateCancelSplit::calculate(
@@ -60,7 +69,7 @@ class PostCancellationRefund
             $input->late ? LedgerTransactionType::CancelLate : LedgerTransactionType::CancelEarly,
             'reservation',
             $input->reservationId,
-            "reservation:{$input->reservationId}:cancel",
+            $idempotencyKey,
             $amount->currency,
             $lines,
             [

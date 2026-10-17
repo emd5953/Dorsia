@@ -32,6 +32,17 @@ it('books $1,000 by card: debit card clearing, credit venue_payable', function (
         ->and(walletAccountExists('member', $member, AccountKind::Credit))->toBeFalse();
 });
 
+it('posts successfully inside nested Laravel savepoints', function (): void {
+    $member = newMemberId();
+
+    $transaction = DB::transaction(fn () => DB::transaction(fn () => DB::transaction(
+        fn () => app(PostBookingPayment::class)->handle(bookingInput($member, cardOnly(100000), 31)),
+    )));
+
+    expect(DB::table('ledger_transactions')->where('id', $transaction->id)->exists())->toBeTrue()
+        ->and(DB::table('ledger_entries')->where('transaction_id', $transaction->id)->count())->toBe(2);
+});
+
 it('returns entry DTOs with account ids, owners, kinds and amounts', function (): void {
     $tx = book(newMemberId(), cardOnly(5000));
 

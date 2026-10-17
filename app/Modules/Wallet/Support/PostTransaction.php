@@ -26,6 +26,15 @@ final class PostTransaction
 {
     public function __construct(private readonly AccountResolver $accounts) {}
 
+    public function existing(string $idempotencyKey): ?PostedTransaction
+    {
+        $existing = $this->find($idempotencyKey);
+
+        return $existing === null
+            ? null
+            : new PostedTransaction($existing['transaction'], true, $existing['metadata'], []);
+    }
+
     /**
      * @param  list<PostingLine>  $lines
      * @param  array<string, mixed>  $metadata
@@ -161,7 +170,7 @@ final class PostTransaction
 
     /**
      * Inserts the transaction row and all entries in one multi-row statement. The parent constraint is
-     * deferred until its entries exist so the BEFORE INSERT ownership trigger can inspect parent xmin.
+     * deferred until its entries exist so the BEFORE INSERT ownership trigger can inspect created_xid.
      *
      * @param  list<PostingLine>  $lines
      * @param  array<string, int>  $accountIds

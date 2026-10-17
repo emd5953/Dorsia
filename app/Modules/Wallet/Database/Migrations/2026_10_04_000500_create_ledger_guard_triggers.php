@@ -11,18 +11,15 @@ return new class extends Migration
     {
         // Entries may only be added by the database transaction that inserted their ledger transaction. Without this,
         // a balanced pair could be appended to an already committed transaction and pass the zero-sum trigger.
-        // A parent xmin that is still in progress belongs to this transaction (including a savepoint).
-        // Rows from any previously committed transaction cannot receive additional entries.
+        // pg_current_xact_id() is the full top-level transaction id, including inside savepoints.
+        // created_xid avoids xmin's 32-bit epoch ambiguity and frozen-tuple collisions.
         DB::unprepared(<<<'SQL'
             CREATE OR REPLACE FUNCTION ledger_assert_entry_parent_is_current() RETURNS trigger AS $$
             BEGIN
                 IF NOT EXISTS (
                     SELECT 1 FROM ledger_transactions t
                      WHERE t.id = NEW.transaction_id
-                       AND (
-                           t.xmin = pg_current_xact_id()::xid
-                           OR pg_xact_status(t.xmin::text::xid8) = 'in progress'
-                       )
+                       AND t.created_xid = pg_current_xact_id()
                 ) THEN
                     RAISE EXCEPTION 'ledger entries can only be added in the database transaction that created ledger transaction %', NEW.transaction_id;
                 END IF;

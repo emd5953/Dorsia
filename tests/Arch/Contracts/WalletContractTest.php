@@ -206,7 +206,7 @@ it('never calls SQL now() in Wallet application code (C§3)', function (): void 
             continue;
         }
 
-        if (preg_match('/\bnow\(\)\s*(,|\)|;)?.*(SELECT|INSERT|UPDATE|WHERE)|CURRENT_TIMESTAMP|\bNOW\(\)/', (string) file_get_contents($file->getPathname())) === 1) {
+        if (preg_match('/(?<!>)\b(SELECT|INSERT|UPDATE|WHERE)\b[^;\n]*\bNOW\(\)|CURRENT_TIMESTAMP/i', (string) file_get_contents($file->getPathname())) === 1) {
             $offenders[] = $file->getPathname();
         }
     }
