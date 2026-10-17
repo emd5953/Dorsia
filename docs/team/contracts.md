@@ -927,6 +927,8 @@ Postgres is the final word: a counter that is too high only lets extra requests 
 
 **Hold expiry.** `now() >= expires_at` means expired. Enforced lazily by `GetHold` and `ConvertHoldToBooking`, and by the `inventory:expire-holds` sweeper (C§13). Expiry and release restore `held_count`, write `slot.released` and release the gate unit after commit, in that order.
 
+**Gate keys are exactly** `slot_gate:{id}` (counter), `slot_gate:{id}:lock` (rebuild lock) and `slot_gate:{id}:refresh` (5 s guard). No in-flight/pending counters and no generation/epoch checks: a rebuild sets `capacity - booked_count - held_count` from Postgres even while requests are in flight (that can only make the gate too high, which is safe), and every after-commit release always runs the release script. Over-high drift is corrected by the Postgres-rejection path in step 4 (rebuild under the same guard). `rebuild_wait_ms` is required: losers of the rebuild lock poll for the counter key with a bounded wait (≤ 200 ms total) and never block on the lock.
+
 **Counter rebuild sweep.** The same every-minute sweeper also rebuilds gates for slots with `starts_at > now()` and `updated_at >= now() - 2 minutes` (tidies counters after commit-then-crash). Correctness of the sold-out signal does not depend on it: the step-3 refresh check heals any wrong-low gate within 5 s of a request, and an idle slot's gate is irrelevant (availability reads Postgres).
 
 ### C§6.2 Confirm (Reservations `ConfirmReservation`)

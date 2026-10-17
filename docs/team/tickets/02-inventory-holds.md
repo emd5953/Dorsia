@@ -44,7 +44,9 @@ Pricing quotes (the hold's `quote` is `null` until ticket 06), confirm, cancel, 
 - [ ] Gate too high (manually `SET` to 99 while the slot is full) → 409 `sold_out`, `held_count` unchanged, gate rebuilt to 0.
 - [ ] Gate too low (manually `SET` to 0 while the slot has 2 free tables, no sweeper run) → the next `POST /api/holds` takes the refresh guard, rebuilds the gate to 2 and succeeds (gate then 1); a request on a truly full slot within 5 s of a refresh issues no rebuild/overdue query (guard key `slot_gate:{id}:refresh` present) and gets `sold_out`.
 - [ ] Drop-in: slot full with gate 0 because of one overdue but unswept hold → a new member's `POST /api/holds` succeeds without the sweeper; the overdue hold is `expired` with one `slot.released` (`reason: "expired"`).
-- [ ] Crash simulation: acquire a gate unit via the Lua script and abandon it (no Postgres write) until the gate reads 0 with free tables → the next request heals it via the refresh check.
+- [ ] Crash simulation: acquire a gate unit via the Lua script and abandon it (no Postgres write) until the gate reads 0 with free tables → the first request after the refresh guard is free (at most `refresh_seconds` = 5 s later; in the test, delete or expire the guard key) rebuilds the gate and succeeds.
+- [ ] Only the three gate keys in C§6.1 exist (no `:pending`, no generation key); a rebuild during in-flight holds never lowers the gate below Postgres truth, and an after-commit release always increments (assert with a rebuild interleaved between DECR and commit).
+- [ ] Rebuild-lock losers return within 200 ms (bounded poll), proven with a held lock in a test.
 - [ ] Gate rebuild expires the slot's overdue holds before recomputing (rebuild on a slot with an overdue hold yields `capacity - booked - held` after that hold's expiry).
 - [ ] Party size outside `[min, max]` → 422 `party_size_not_allowed` with `details.min_party_size/max_party_size`; no gate unit consumed.
 - [ ] Slot in the past or venue inactive → 409 `slot_unavailable`; slot in an unopened drop → 409 `drop_not_open`; at exactly `released_at` the hold succeeds.
