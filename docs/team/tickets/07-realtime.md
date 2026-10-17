@@ -15,7 +15,7 @@
 - `app/Modules/Realtime/**`
 - `tests/Modules/Realtime/**`, `tests/Arch/Contracts/RealtimeContractTest.php`
 - `loadtest/realtime-smoke.js` (new)
-- `docker-compose.yml`: **only** remove `profiles: [realtime]` from the `outbox` service
+- `docker-compose.yml`: **only** the `outbox` service: remove `profiles: [realtime]` and add `restart: unless-stopped`
 
 ## Non-goals
 
@@ -35,6 +35,8 @@ Writing outbox rows (each module writes its own), push notifications to members 
 - [ ] Private channel names: Laravel channel `member.{id}` (wire `private-member.{id}`); `venue.{id}.slots` and `drop.{id}` are public.
 - [ ] Published rows get `published_at`; a second `--once` run publishes nothing.
 - [ ] Rows are published in ascending `id`; when broadcasting row N throws, N gets `attempts +1` and `last_error`, rows after N in that batch stay unpublished, and the next run retries N first.
+- [ ] A row failing 5 times is dead-lettered: one `critical` report, excluded from later batches, rows after it publish; an unmappable row (unknown topic, `venue_id` not an int) is dead-lettered on the first attempt.
+- [ ] The publisher loop survives a DB outage (stop postgres for 10 s in a test or manually): it reports, backs off (1 s → 30 s), reconnects and resumes without a restart.
 - [ ] A transaction that writes an outbox row and rolls back produces no broadcast (end-to-end through `Outbox::record` and `PublishOutboxBatch`).
 - [ ] Two publishers running concurrently never broadcast the same row twice (`SKIP LOCKED`).
 - [ ] `/broadcasting/auth` for `private-member.{own id}` → 200; for another member's id → 403; without token → 401.

@@ -1,8 +1,8 @@
 # Build Status
 
-Orchestrator state for the steps 1–8 build. Updated at every milestone so another orchestrator (Codex, if Claude runs out) can take over. Process: [process.md](process.md). Tasks: `.claude/handoff/tasks/`.
+Orchestrator state for the steps 1–8 build. Updated at every milestone so another orchestrator can take over. Process: [process.md](process.md). Tasks: `.claude/handoff/tasks/`.
 
-*Last updated: 2026-10-17 12:10 EDT*
+*Last updated: 2026-10-17 16:35 EDT*
 
 ## Tickets
 
@@ -12,23 +12,30 @@ Orchestrator state for the steps 1–8 build. Updated at every milestone so anot
 | 04 Pricing | Merged (+2 hardening batches) | feat/pricing | 94 |
 | 03 Ledger | Merged | feat/ledger | 89, 88, 91 (gate fail), 93 |
 | 05 Payments | Merged | feat/payments-gateway | 86, 85, 93 |
-| 02 Inventory/holds | Round-2 eval running (Claude) | feat/inventory-holds | 87 |
-| 07 Real-time | Building (Codex) | feat/realtime-outbox | – |
+| 02 Inventory/holds | Round-3 rework running (Codex) | feat/inventory-holds | 87, 83 (fail) |
+| 07 Real-time | Engineer complete; round-1 eval running (Codex) | feat/realtime-outbox | pending |
 | 06 Booking confirm/cancel | Not started; needs 02 merged | – | – |
 | 08 k6 drop test | Not started; needs 06 and 07 | – | – |
 
 ## Running
 
-- `inventory-eval-r2` (Claude eval) on `.claude/worktrees/agent-a6f64a444268d98a6`
-- `realtime-07` (Codex engineer, started before the Claude-first rule; finishes on Codex) on `.claude/worktrees/realtime-07`. Its k6 smoke test needs ticket 02 merged before it can run.
+- `inventory-r3` (Codex engineer, PID 24126) in `.claude/worktrees/agent-a6f64a444268d98a6`.
+- `realtime-eval-r1` (Codex eval, PID 24143) in `.claude/worktrees/realtime-07`.
+
+## Recent decisions and handoff notes
+
+- Inventory round 2 failed at 83. Its eval report is `docs/team/evals/inventory-r2.md`; round 3 addresses the deadlock, refresh guard test coverage, guard expiry, MISSING result, and bounded rebuild wait.
+- The inventory-r3 registry brief still mentions pending/generation mechanisms, but architect-updated `contracts.md` C§6.1 and ticket 02 explicitly prohibit both. The engineer must follow the current contract/ticket: only counter, lock, and refresh keys; no pending/generation keys.
+- Ticket 07 engineer finished with a clean feature worktree except untracked `HANDOFF.md`. Its result is `.claude/handoff/logs/realtime-07.result.md`. The live k6 smoke remains dependent on ticket 02 and a seeded available slot.
+- Realtime round-1 eval is running against the uncommitted feature branch; its brief requires the report at `docs/team/evals/realtime-r1.md`.
 
 ## Next steps
 
-1. Inventory eval r2: PASS → merge `feat/inventory-holds`; FAIL → Claude engineer rework round 3.
-2. After 02 merges: start ticket 06 on a Claude engineer in a new worktree off `build/v1` (`bin/worktree-env 06`). Ticket 06 also carries: `HoldView::$quote` filled with `QuoteData`, `HoldReleaseReason::ConfirmFailed`, null `CancellationRefund::$transactionId` handling, release-hold-on-confirm-failure (C§6.2 step 6).
-3. Realtime-07 done → eval → merge; then run its k6 smoke test once 02 is merged.
-4. After 06 and 07 merge: ticket 08 (k6 drop test).
-5. Final product eval (process.md), then a PR `build/v1` → `main`. The PR waits for the user.
+1. When inventory-r3 exits, read its result, inspect the worktree/diff, commit implementation files only (exclude `HANDOFF.md`) on `feat/inventory-holds`, then run a fresh separate Codex eval against current `build/v1` criteria. PASS requires every hard gate and score ≥90. On PASS merge with `git merge --no-ff`; on FAIL write a round-4 rework task and launch it with `codex-handoff.sh <id>`.
+2. When realtime-eval-r1 exits, read its report. On PASS commit ticket 07 changes excluding `HANDOFF.md`, rebase onto current `build/v1`, rerun full CI if the rebase changes code, and merge with `git merge --no-ff`. On FAIL write a rework task and launch it with `codex-handoff.sh <id>`.
+3. Once inventory merges, run the pending ticket 07 live smoke command against a seeded slot, then start ticket 06 in a worktree from `build/v1` (`bin/worktree-env 06`). Ticket 06 includes `HoldView::$quote` populated with `QuoteData`, `HoldReleaseReason::ConfirmFailed`, nullable `CancellationRefund::$transactionId`, and release-hold-on-confirm-failure per C§6.2.
+4. After tickets 06 and 07 merge, start ticket 08, then perform the final product eval in `process.md`.
+5. Never push, touch `main`, or open a PR. The final PR waits for the user's return.
 
 ## Deferred follow-ups
 
@@ -37,15 +44,11 @@ Orchestrator state for the steps 1–8 build. Updated at every milestone so anot
 - Platform: `docs/team/evals/platform-hardening-r2.md` items 1–5 (incl. Sanctum PersonalAccessToken whole-second timestamps).
 - Pricing: `docs/team/evals/pricing-hardening-r1.md` info items.
 
-## Rules
+## Open decisions
 
-- Engineers and evals run on Claude (Agent tool, `implementer` and `reviewer`), each registered in `.claude/handoff/tasks/` with `engine: claude` and its agent id. Codex only after the 95% switch.
-
-## Open decisions for the user
-
-- Codex model and effort for engineering (currently the `~/.codex/config.toml` default: gpt-6-luna, medium).
+- No current contract decision is blocking work. Preserve the architect's current Inventory C§6.1 design above; escalate any newly discovered cross-module ambiguity here before changing the contract.
 
 ## Environment notes
 
 - Docker Desktop has died three times; if `docker info` fails, run `open -a Docker` and wait. Stacks then need `make up` per worktree.
-- Codex can't commit (`.git` read-only in its sandbox); the orchestrator commits.
+- Commits/rebases/merges are orchestrator-owned. Never push.

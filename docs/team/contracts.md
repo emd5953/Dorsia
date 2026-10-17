@@ -887,10 +887,10 @@ Exceptions (`DomainError`): `ReservationNotFoundException` 404 `not_found`; `Res
 
 | Action | Signature | Behavior |
 | --- | --- | --- |
-| `PublishOutboxBatch` | `handle(int $limit = 100): int` | In a transaction: `SELECT ... FROM outbox_events WHERE published_at IS NULL ORDER BY id LIMIT :limit FOR UPDATE SKIP LOCKED`; for each row broadcast per C§7 via an internal `ShouldBroadcastNow` event; success → `published_at = now()`; failure → `attempts + 1`, `last_error`, stop the batch (preserve order). Returns rows published. |
+| `PublishOutboxBatch` | `handle(int $limit = 100): int` | In a transaction: `SELECT ... FROM outbox_events WHERE published_at IS NULL ORDER BY id LIMIT :limit FOR UPDATE SKIP LOCKED`; for each row broadcast per C§7 via an internal `ShouldBroadcastNow` event; success → `published_at = now()`; failure → `attempts + 1`, `last_error`, stop the batch (preserve order). Rows with `attempts >= realtime.outbox.max_attempts` (5) are **dead-lettered**: excluded from selection (`WHERE published_at IS NULL AND attempts < :max`), reported once at `critical` when they reach the limit, never retried automatically. A row that cannot be mapped at all (unknown topic, payload failing C§7 shape/type checks) is dead-lettered immediately (`attempts = max`, `last_error` set). Pushes are hints, so skipping a dead row is acceptable; ordering holds among live rows. Returns rows published. |
 | `PruneOutbox` | `handle(CarbonImmutable $now): int` | Deletes rows published more than `realtime.outbox.retention_days` ago. |
 
-Artisan: `realtime:publish-outbox {--once} {--limit=100} {--sleep-ms=100}` (long-running loop in the `outbox` container; `--once` for tests), `realtime:prune-outbox` (daily 05:00 UTC). Channel authorization is registered in `RealtimeServiceProvider` (`Broadcast::routes(['middleware' => ['auth:sanctum']])` and `Broadcast::channel('member.{memberId}', ...)`).
+Artisan: `realtime:publish-outbox {--once} {--limit=100} {--sleep-ms=100}` (long-running loop in the `outbox` container; `--once` for tests; the loop catches every `\Throwable` per iteration, `report()`s it, backs off exponentially from 1 s to 30 s, purges the DB connection and continues; exits only on SIGTERM/SIGINT), `realtime:prune-outbox` (daily 05:00 UTC). Channel authorization is registered in `RealtimeServiceProvider` (`Broadcast::routes(['middleware' => ['auth:sanctum']])` and `Broadcast::channel('member.{memberId}', ...)`).
 
 ---
 
@@ -1197,6 +1197,7 @@ Module config files are `app/Modules/<Name>/config.php`, merged under the lowerc
 | `realtime.outbox.batch` | 100 | — | Realtime |
 | `realtime.outbox.sleep_ms` | 100 | — | Realtime |
 | `realtime.outbox.retention_days` | 7 | — | Realtime |
+| `realtime.outbox.max_attempts` | 5 | — | Realtime |
 | `idempotency.stale_after_seconds` | 30 | — | Platform |
 | `idempotency.retention_hours` | 24 | — | Platform |
 
@@ -1232,7 +1233,7 @@ Registered by each module's provider `schedule()` hook. All use `->withoutOverla
 | `app` | built from `Dockerfile`; `php artisan octane:frankenphp --host=0.0.0.0 --port=8000 --workers=${OCTANE_WORKERS:-auto} --max-requests=1000` | 8000 | `${APP_PORT:-8000}` |
 | `worker` | same image; `php artisan queue:work redis --tries=5` | — | — |
 | `scheduler` | same image; `php artisan schedule:work` | — | — |
-| `outbox` | same image; `php artisan realtime:publish-outbox`; `profiles: [realtime]` until ticket 07 removes the profile | — | — |
+| `outbox` | same image; `php artisan realtime:publish-outbox`; `restart: unless-stopped`; `profiles: [realtime]` until ticket 07 removes the profile | — | — |
 | `reverb` | same image; `php artisan reverb:start --host=0.0.0.0 --port=8080` | 8080 | `${REVERB_PORT:-8080}` |
 | `postgres` | `postgres:16.15-bookworm`, `-c max_connections=200`; init script creates `dorsia` and `dorsia_test` | 5432 | `${FORWARD_DB_PORT:-5432}` |
 | `redis` | `redis:7.4.11-bookworm` | 6379 | `${FORWARD_REDIS_PORT:-6379}` |
