@@ -9,6 +9,7 @@ use App\Modules\Reservations\Data\HoldView;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use LogicException;
 
 /**
  * @property HoldView $resource
@@ -21,6 +22,7 @@ final class HoldResource extends JsonResource
     public function toArray(Request $request): array
     {
         $hold = $this->resource->hold;
+        $quote = $this->resource->quote ?? throw new LogicException("Hold {$hold->id} has no quote.");
 
         return [
             'id' => $hold->id,
@@ -28,7 +30,12 @@ final class HoldResource extends JsonResource
             'party_size' => $hold->partySize,
             'expires_at' => $this->iso($hold->expiresAt),
             'slot' => $this->slot($hold->slot),
-            'quote' => null,
+            'quote' => [
+                'per_person_cents' => $quote->perPerson->cents,
+                'amount_cents' => $quote->amount->cents,
+                'currency' => $quote->amount->currency->value,
+                'expires_at' => $this->iso($quote->expiresAt),
+            ],
         ];
     }
 

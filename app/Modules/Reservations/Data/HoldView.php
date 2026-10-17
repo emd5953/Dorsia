@@ -9,5 +9,5 @@ use App\Modules\Pricing\Data\QuoteData;
 
 final readonly class HoldView
 {
-    public function __construct(public HoldData $hold, public ?QuoteData $quote = null) {}
+    public function __construct(public HoldData $hold, public ?QuoteData $quote) {}
 }

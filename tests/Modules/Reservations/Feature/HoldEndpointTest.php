@@ -8,6 +8,7 @@ use App\Modules\Reservations\Actions\PlaceHold;
 use App\Shared\Idempotency\IdempotencyKey;
 use App\Shared\Outbox\OutboxEvent;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Str;
 use Tests\Modules\Inventory\Support\Fixtures;
@@ -28,7 +29,7 @@ function postHold(array $body, ?string $key = null, ?string $token = null)
         ->postJson('/api/holds', $body);
 }
 
-it('creates a hold: 201, the C§8 Hold shape with quote null, held_count + 1, one slot.held row and the gate', function (): void {
+it('creates a hold: 201, the C§8 Hold shape with its quote, held_count + 1, one slot.held row and the gate', function (): void {
     $slot = Fixtures::slot([
         'starts_at' => '2026-11-08 01:00:00',
         'released_at' => '2026-10-01 00:00:00',
@@ -59,7 +60,12 @@ it('creates a hold: 201, the C§8 Hold shape with quote null, held_count + 1, on
             'released_at' => '2026-10-01T00:00:00Z',
             'bookable' => true,
         ],
-        'quote' => null,
+        'quote' => [
+            'per_person_cents' => 37500,
+            'amount_cents' => 75000,
+            'currency' => 'USD',
+            'expires_at' => '2026-11-07T15:05:00Z',
+        ],
     ]]);
 
     expect($slot->fresh()->held_count)->toBe(1)
@@ -146,7 +152,7 @@ it('shows an active hold, hides it from other members, and 404s unknown ids', fu
     $id = postHold(['slot_id' => $slot->id, 'party_size' => 2])->json('data.id');
 
     $this->withToken($this->token)->getJson("/api/holds/{$id}")->assertOk()
-        ->assertJsonPath('data.id', $id)->assertJsonPath('data.status', 'active')->assertJsonPath('data.quote', null);
+        ->assertJsonPath('data.id', $id)->assertJsonPath('data.status', 'active')->assertJsonPath('data.quote.amount_cents', 50000)->assertJsonPath('data.quote.per_person_cents', 25000);
 
     $other = Fixtures::token(Fixtures::member());
     app('auth')->forgetGuards();
@@ -252,12 +258,13 @@ it('scopes keys per member: two members may use the same key on one slot', funct
         ->and(Hold::query()->pluck('idempotency_key')->unique())->toHaveCount(2);
 });
 
-it('lets PlaceHold return a quote-less HoldView', function (): void {
+it('lets PlaceHold return a HoldView whose quote is the stored price_quotes row', function (): void {
     $slot = Fixtures::slot();
 
     $view = app(PlaceHold::class)->handle($this->member->id, $slot->id, 2, new IdempotencyKey($this->member->id, 'abc'));
 
-    expect($view->quote)->toBeNull()
+    expect($view->quote)->not->toBeNull()
+        ->and($view->quote?->amount->cents)->toBe((int) DB::table('price_quotes')->where('hold_id', $view->hold->id)->value('amount_cents'))
         ->and($view->hold->partySize)->toBe(2)
         ->and(Hold::query()->sole()->idempotency_key)->toBe("{$this->member->id}:abc");
 });

@@ -8,4 +8,5 @@ enum HoldReleaseReason: string
 {
     case PaymentFailed = 'payment_failed';
     case PaymentTimeout = 'payment_timeout';
+    case ConfirmFailed = 'confirm_failed';
 }
