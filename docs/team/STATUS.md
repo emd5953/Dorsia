@@ -2,7 +2,7 @@
 
 Orchestrator state for the steps 1–8 build. Updated at every milestone so another orchestrator can take over. Process: [process.md](process.md). Tasks: `.claude/handoff/tasks/`.
 
-*Last updated: 2026-10-17 12:23 EDT — switched to Codex at 96% usage*
+*Last updated: 2026-10-17 12:40 EDT — evals restarted with Docker access*
 
 ## Tickets
 
@@ -12,15 +12,19 @@ Orchestrator state for the steps 1–8 build. Updated at every milestone so anot
 | 04 Pricing | Merged (+2 hardening batches) | feat/pricing | 94 |
 | 03 Ledger | Merged | feat/ledger | 89, 88, 91 (gate fail), 93 |
 | 05 Payments | Merged | feat/payments-gateway | 86, 85, 93 |
-| 02 Inventory/holds | Round-3 rework running (Codex) | feat/inventory-holds | 87, 83 (fail) |
-| 07 Real-time | Engineer complete; round-1 eval running (Codex) | feat/realtime-outbox | pending |
+| 02 Inventory/holds | Round-3 implementation complete; round-3 eval pending | feat/inventory-holds | 87, 83 (fail), round 3 pending |
+| 07 Real-time | Round-2 implementation complete; round-2 eval pending | feat/realtime-outbox | 79 (fail), round 2 pending |
 | 06 Booking confirm/cancel | Not started; needs 02 merged | – | – |
 | 08 k6 drop test | Not started; needs 06 and 07 | – | – |
 
 ## Running
 
-- `inventory-r3` (Codex engineer, PID 24126) in `.claude/worktrees/agent-a6f64a444268d98a6`.
-- `realtime-eval-r1` (Codex eval, PID 24143) in `.claude/worktrees/realtime-07`.
+- Inventory round-3 eval active (terminal session 30093; thread `01a14ac0-11cb-7bd2-99c5-275a67ac770e`, PID 29686).
+- Realtime round-2 eval active (terminal session 18444; thread `01a14ac0-11cb-75e1-b572-c17beded906d`, PID 29685).
+- Both first eval sessions were stopped because workspace-write blocked the Docker socket. They restarted with `danger-full-access` for the eval runs only, as the process instructions prescribe when Docker access is blocked.
+- Previous engineer PIDs 24126 and 25469 exited; their result reports are present.
+- `inventory-r3` changes were committed as `1709490` and rebased onto current `build/v1`; eval must run next.
+- `realtime-r2` changes were committed as `f631632` and rebased onto current `build/v1`; eval must run next.
 
 ## Recent decisions and handoff notes
 
@@ -31,10 +35,9 @@ Orchestrator state for the steps 1–8 build. Updated at every milestone so anot
 
 ## Next steps
 
-1. When inventory-r3 exits, read its result, inspect the worktree/diff, commit implementation files only (exclude `HANDOFF.md`) on `feat/inventory-holds`, then run a fresh separate Codex eval against current `build/v1` criteria. PASS requires every hard gate and score ≥90. On PASS merge with `git merge --no-ff`; on FAIL write a round-4 rework task and launch it with `codex-handoff.sh <id>`.
-2. When realtime-eval-r1 exits, read its report. On PASS commit ticket 07 changes excluding `HANDOFF.md`, rebase onto current `build/v1`, rerun full CI if the rebase changes code, and merge with `git merge --no-ff`. On FAIL write a rework task and launch it with `codex-handoff.sh <id>`.
-3. Once inventory merges, run the pending ticket 07 live smoke command against a seeded slot, then start ticket 06 in a worktree from `build/v1` (`bin/worktree-env 06`). Ticket 06 includes `HoldView::$quote` populated with `QuoteData`, `HoldReleaseReason::ConfirmFailed`, nullable `CancellationRefund::$transactionId`, and release-hold-on-confirm-failure per C§6.2.
-4. After tickets 06 and 07 merge, start ticket 08, then perform the final product eval in `process.md`.
+1. When evals finish, read both reports. PASS means all hard gates and score ≥90; merge passing branches with `git merge --no-ff`; on FAIL create the next rework task and launch with `codex-handoff.sh <id>`.
+2. Once inventory merges, run the pending ticket 07 live smoke against a seeded slot, then start ticket 06 from `build/v1` (`bin/worktree-env 06`). Ticket 06 includes `HoldView::$quote` populated with `QuoteData`, `HoldReleaseReason::ConfirmFailed`, nullable `CancellationRefund::$transactionId`, and release-hold-on-confirm-failure per C§6.2.
+3. After tickets 06 and 07 merge, start ticket 08, then perform the final product eval in `process.md`.
 5. Never push, touch `main`, or open a PR. The final PR waits for the user's return.
 
 ## Deferred follow-ups

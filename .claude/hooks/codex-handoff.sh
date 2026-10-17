@@ -61,7 +61,9 @@ Your job, following process.md:
 - Start the next tickets when their dependencies are merged, per process.md Order.
 - Update docs/team/STATUS.md after every step, so the Claude orchestrator can take back over.
 Never push, never touch main, never merge to main, never open a PR. Contract questions: write them into docs/team/STATUS.md under Open decisions and take the conservative option."
-  nohup codex exec -C "$REPO" -s danger-full-access -o "$LOGS/orchestrator.result.md" "$prompt" > "$LOGS/orchestrator.log" 2>&1 &
+  printf "%s" "$prompt" > "$DIR/orchestrator-prompt.txt"
+  rm -f "$DIR/stop-orchestrator"
+  nohup "$REPO/.claude/hooks/orchestrator-loop.sh" "$(( $(date +%s) + 5*3600 ))" > /dev/null 2>&1 &
   echo $! > "$DIR/orchestrator.pid"
   log "launched codex orchestrator (pid $!)"
 }
