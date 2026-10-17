@@ -142,12 +142,50 @@ it('answers sold_out when the gate is too high but Postgres is full, then rebuil
         ->and(Fixtures::gate($slot))->toBe(0);
 });
 
+it('does not return a gate unit or rebuild after Postgres rejects while the refresh guard is occupied', function (): void {
+    $slot = Fixtures::slot(['capacity' => 1, 'booked_count' => 1]);
+    Redis::connection()->command('set', ["slot_gate:{$slot->id}", 99]);
+    Redis::connection()->command('set', ["slot_gate:{$slot->id}:refresh", '1', ['EX' => 5]]);
+
+    expect(fn () => Fixtures::hold($slot))->toThrow(SoldOutException::class)
+        ->and(Fixtures::gate($slot))->toBe(98)
+        ->and(Hold::query()->count())->toBe(0);
+});
+
 it('refreshes a too-low gate once and succeeds without waiting for the sweeper', function (): void {
     $slot = Fixtures::slot(['capacity' => 3]);
     Redis::connection()->command('set', ["slot_gate:{$slot->id}", 0]);
 
     expect(Fixtures::hold($slot)->status->value)->toBe('active')
         ->and(Fixtures::gate($slot))->toBe(2)
+        ->and(Redis::connection()->command('exists', ["slot_gate:{$slot->id}:refresh"]))->toBe(1);
+});
+
+it('does not rebuild or query overdue holds again while the refresh guard is active', function (): void {
+    $slot = Fixtures::slot(['capacity' => 2]);
+    $overdue = Fixtures::hold($slot);
+    $this->travel(301)->seconds();
+    Redis::connection()->command('set', ["slot_gate:{$slot->id}", 0]);
+    Redis::connection()->command('set', ["slot_gate:{$slot->id}:refresh", '1', ['EX' => 5]]);
+
+    expect(fn () => Fixtures::hold($slot))->toThrow(SoldOutException::class)
+        ->and(Hold::query()->whereKey($overdue->id)->value('status'))->toBe('active')
+        ->and($slot->fresh()->held_count)->toBe(1)
+        ->and(Fixtures::gate($slot))->toBe(0);
+});
+
+it('uses NX with the configured refresh expiry and allows a rebuild after the guard expires', function (): void {
+    $slot = Fixtures::slot(['capacity' => 1, 'booked_count' => 1]);
+    config(['inventory.gate.refresh_seconds' => 1]);
+    Redis::connection()->command('set', ["slot_gate:{$slot->id}", 0]);
+
+    expect(app(SlotGate::class)->refresh($slot->id))->toBeTrue()
+        ->and(Redis::connection()->command('ttl', ["slot_gate:{$slot->id}:refresh"]))->toBeLessThanOrEqual(1)
+        ->and(app(SlotGate::class)->refresh($slot->id))->toBeFalse();
+
+    usleep(1_100_000);
+
+    expect(app(SlotGate::class)->refresh($slot->id))->toBeTrue()
         ->and(Redis::connection()->command('exists', ["slot_gate:{$slot->id}:refresh"]))->toBe(1);
 });
 
@@ -330,16 +368,14 @@ it('rebuild expires overdue holds before reading slot counters', function (): vo
         ->and(Fixtures::gate($slot))->toBe(1);
 });
 
-it('heals a gate unit abandoned by a crashed request after the refresh window', function (): void {
+it('heals a gate unit abandoned by a crashed request without a pre-existing refresh guard', function (): void {
     $slot = Fixtures::slot(['capacity' => 2]);
-    config(['inventory.gate.refresh_seconds' => 1]);
     Redis::connection()->command('set', ["slot_gate:{$slot->id}", 1]);
     app(SlotGate::class)->acquire($slot->id); // DECR, no DB transaction
-    Redis::connection()->command('set', ["slot_gate:{$slot->id}:refresh", '1', ['NX', 'EX' => 1]]);
-    usleep(1_100_000);
 
     expect(Fixtures::hold($slot)->status->value)->toBe('active')
-        ->and(Fixtures::gate($slot))->toBe(1);
+        ->and(Fixtures::gate($slot))->toBe(1)
+        ->and(Redis::connection()->command('exists', ["slot_gate:{$slot->id}:refresh"]))->toBe(1);
 });
 
 it('does not expire a hold one microsecond before expires_at when making room', function (): void {
