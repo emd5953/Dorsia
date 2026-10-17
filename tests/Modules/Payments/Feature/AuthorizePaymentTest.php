@@ -13,6 +13,7 @@ use App\Modules\Payments\Exceptions\PaymentConflictException;
 use App\Modules\Payments\Exceptions\PaymentDeclinedException;
 use App\Modules\Payments\Exceptions\PaymentInProgressException;
 use App\Modules\Payments\Exceptions\PaymentTimeoutException;
+use App\Modules\Payments\Jobs\RefundPayment;
 use App\Modules\Payments\Models\Payment;
 use App\Modules\Payments\Support\FakeGateway;
 use App\Shared\Members\Member;
@@ -20,6 +21,7 @@ use App\Shared\Money\Money;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Route;
 use RuntimeException;
 use Tests\TestCase;
@@ -282,6 +284,43 @@ it('treats an authorized gateway result without a provider ref as timed_out', fu
     expect(fn () => app(AuthorizePayment::class)->handle(authorizeInput(holdId: 910)))
         ->toThrow(PaymentTimeoutException::class);
     expect(Payment::query()->sole()->status)->toBe(PaymentStatus::TimedOut);
+});
+
+it('times out and schedules a refund when the reaper times out the row during authorize', function (): void {
+    Queue::fake();
+    $gateway = new class implements PaymentGateway
+    {
+        public function authorize(AuthorizeRequest $request): GatewayResult
+        {
+            Payment::query()->whereKey($request->metadata['payment_id'])->update(['status' => PaymentStatus::TimedOut->value]);
+
+            return new GatewayResult(GatewayStatus::Authorized, 'late_provider_ref');
+        }
+
+        public function capture(string $providerRef, Money $amount, string $idempotencyKey): GatewayResult
+        {
+            return new GatewayResult(GatewayStatus::Captured, $providerRef);
+        }
+
+        public function refund(string $providerRef, Money $amount, string $idempotencyKey): GatewayResult
+        {
+            return new GatewayResult(GatewayStatus::Refunded, $providerRef);
+        }
+
+        public function payout(string $destination, Money $amount, string $idempotencyKey): GatewayResult
+        {
+            return new GatewayResult(GatewayStatus::PaidOut, 'po');
+        }
+    };
+    app()->instance(PaymentGateway::class, $gateway);
+
+    expect(fn () => app(AuthorizePayment::class)->handle(authorizeInput(holdId: 912)))
+        ->toThrow(PaymentTimeoutException::class);
+
+    $payment = Payment::query()->sole();
+    expect($payment->status)->toBe(PaymentStatus::TimedOut)
+        ->and($payment->provider_ref)->toBe('late_provider_ref');
+    Queue::assertPushed(RefundPayment::class, fn (RefundPayment $job): bool => $job->paymentId === $payment->id);
 });
 
 it('does not report authorization success if a webhook changes pending to failed during the gateway call', function (): void {

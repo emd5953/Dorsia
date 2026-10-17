@@ -366,7 +366,7 @@ final class FakeGateway implements PaymentGateway
         $chargeDuplicate = (bool) $this->connection()->sismember(self::DUPLICATE, $ref);
         $duplicate = $chargeDuplicate || ($emit && ($this->duplicateWebhooks ?? (bool) config('payments.fake.duplicate_webhooks')));
 
-        if (! $emit && ! $chargeDuplicate) {
+        if (! $emit && ! $duplicate) {
             return;
         }
 

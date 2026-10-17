@@ -152,7 +152,7 @@ final class HandleWebhook
         $status = $payment->status;
         $values = match ([$event['type'], $status]) {
             ['payment.authorized', PaymentStatus::Pending] => ['status' => PaymentStatus::Authorized->value, 'provider_ref' => $ref],
-            ['payment.authorized', PaymentStatus::TimedOut] => $ref === null ? [] : ['provider_ref' => $ref],
+            ['payment.authorized', PaymentStatus::TimedOut] => ['provider_ref' => $ref],
             ['payment.captured', PaymentStatus::Authorized] => ['status' => PaymentStatus::Captured->value],
             ['payment.captured', PaymentStatus::Pending] => ['status' => PaymentStatus::Captured->value, 'provider_ref' => $ref],
             ['payment.captured', PaymentStatus::TimedOut] => ['provider_ref' => $ref],

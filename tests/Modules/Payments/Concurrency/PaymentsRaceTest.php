@@ -5,13 +5,17 @@ declare(strict_types=1);
 use App\Modules\Payments\Actions\AuthorizePayment;
 use App\Modules\Payments\Actions\MarkPaymentForCapture;
 use App\Modules\Payments\Actions\VoidPayment;
+use App\Modules\Payments\Data\AuthorizeRequest;
 use App\Modules\Payments\Enums\PaymentStatus;
 use App\Modules\Payments\Exceptions\PaymentConflictException;
 use App\Modules\Payments\Exceptions\PaymentInProgressException;
 use App\Modules\Payments\Models\Payment;
 use App\Modules\Payments\Models\PaymentWebhookEvent;
 use App\Modules\Payments\Support\FakeGateway;
+use App\Modules\Payments\Support\HandleWebhook;
+use App\Modules\Payments\Support\WebhookSignature;
 use App\Shared\Members\Member;
+use App\Shared\Money\Money;
 use Illuminate\Support\Facades\DB;
 use Tests\Support\Concurrency;
 
@@ -47,6 +51,52 @@ it('creates exactly one charge and one payment for 20 parallel authorizations of
         ->and(fakeGateway()->charges()[0]['provider_ref'])->toBe($payment->provider_ref);
 
     fakeGateway()->assertChargedOnce('hold:501:auth');
+});
+
+it('emits only once when parallel fake gateway calls race to claim the same key', function (): void {
+    routeWebhooksThroughKernel($this);
+    fakeGateway()->emitWebhooks();
+    $request = new AuthorizeRequest(
+        Money::of(5000, 'USD'),
+        'tok_ok',
+        'emit-race-key',
+        ['payment_id' => 500],
+    );
+
+    $results = Concurrency::run(array_fill(0, 20, fn (): array => [
+        'ref' => fakeGateway()->authorize($request)->providerRef,
+    ]));
+
+    expect(array_unique(array_column($results, 'ref')))->toHaveCount(1)
+        ->and(PaymentWebhookEvent::query()->count())->toBe(1)
+        ->and(fakeGateway()->charges())->toHaveCount(1);
+});
+
+it('serializes conflicting webhook transitions and keeps the later refund', function (): void {
+    $payment = Payment::factory()->create(['status' => PaymentStatus::Authorized, 'provider_ref' => 'fake_ch_lock']);
+    DB::unprepared("CREATE FUNCTION payments_test_slow_refund() RETURNS trigger LANGUAGE plpgsql AS \$\$ BEGIN IF NEW.status = 'refunded' THEN PERFORM pg_sleep(0.5); END IF; RETURN NEW; END; \$\$");
+    DB::unprepared('CREATE TRIGGER payments_test_slow_refund BEFORE UPDATE ON payments FOR EACH ROW EXECUTE FUNCTION payments_test_slow_refund()');
+    $refunded = FakeGateway::webhookPayload('payment.refunded', 'fake_ch_lock', $payment->amount(), $payment->id, 'evt_lock_refund');
+    $captured = FakeGateway::webhookPayload('payment.captured', 'fake_ch_lock', $payment->amount(), $payment->id, 'evt_lock_capture');
+    $captureBody = json_encode($captured, JSON_THROW_ON_ERROR);
+    $refundBody = json_encode($refunded, JSON_THROW_ON_ERROR);
+
+    try {
+        Concurrency::run([
+            fn (): bool => app(HandleWebhook::class)->handle($refundBody, WebhookSignature::sign($refundBody)),
+            function () use ($captureBody): bool {
+                usleep(100_000);
+
+                return app(HandleWebhook::class)->handle($captureBody, WebhookSignature::sign($captureBody));
+            },
+        ]);
+    } finally {
+        DB::unprepared('DROP TRIGGER IF EXISTS payments_test_slow_refund ON payments');
+        DB::unprepared('DROP FUNCTION IF EXISTS payments_test_slow_refund()');
+    }
+
+    expect($payment->fresh()?->status)->toBe(PaymentStatus::Refunded)
+        ->and(PaymentWebhookEvent::query()->whereIn('event_id', ['evt_lock_capture', 'evt_lock_refund'])->count())->toBe(2);
 });
 
 it('applies one transition and stores one event for 20 parallel deliveries of the same webhook', function (): void {

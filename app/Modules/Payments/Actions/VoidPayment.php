@@ -7,12 +7,13 @@ namespace App\Modules\Payments\Actions;
 use App\Modules\Payments\Contracts\PaymentGateway;
 use App\Modules\Payments\Enums\GatewayStatus;
 use App\Modules\Payments\Enums\PaymentStatus;
-use App\Modules\Payments\Exceptions\GatewayTimeoutException;
 use App\Modules\Payments\Jobs\RefundPayment;
 use App\Modules\Payments\Models\Payment;
 use App\Shared\Support\Transactions;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use LogicException;
+use Throwable;
 
 class VoidPayment
 {
@@ -41,7 +42,11 @@ class VoidPayment
 
         try {
             $result = $this->gateway->refund((string) $payment->provider_ref, $payment->amount(), "payment:{$paymentId}:void");
-        } catch (GatewayTimeoutException) {
+        } catch (Throwable $error) {
+            Log::error('Payment void refund failed; scheduling retry.', [
+                'payment_id' => $paymentId,
+                'error' => $error,
+            ]);
             RefundPayment::dispatch($paymentId);
 
             return;

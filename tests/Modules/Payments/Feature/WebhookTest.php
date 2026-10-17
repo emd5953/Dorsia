@@ -9,6 +9,7 @@ use App\Modules\Payments\Jobs\RefundPayment;
 use App\Modules\Payments\Models\Payment;
 use App\Modules\Payments\Models\PaymentWebhookEvent;
 use App\Modules\Payments\Support\FakeGateway;
+use App\Modules\Payments\Support\HandleWebhook;
 use App\Shared\Money\Money;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -45,7 +46,7 @@ it('rejects a bad signature with 401 invalid_signature and stores nothing', func
     'no prefix' => hash_hmac('sha256', 'x', 'y'),
 ]);
 
-it('rejects a missing signature header and a body signed for different bytes', function (): void {
+it('rejects a missing signature header and accepts the exact signed raw body including trailing whitespace', function (): void {
     $payment = Payment::factory()->create();
     $payload = eventFor($payment, 'payment.captured');
     $raw = json_encode($payload, JSON_THROW_ON_ERROR);
@@ -56,9 +57,9 @@ it('rejects a missing signature header and a body signed for different bytes', f
     $this->call('POST', '/api/webhooks/payments/fake', [], [], [], [
         'CONTENT_TYPE' => 'application/json',
         'HTTP_FAKE_SIGNATURE' => FakeGateway::sign($raw.' '),
-    ], $raw)->assertStatus(401);
+    ], $raw.' ')->assertOk()->assertExactJson(['data' => ['duplicate' => false]]);
 
-    expect(PaymentWebhookEvent::query()->count())->toBe(0);
+    expect(PaymentWebhookEvent::query()->count())->toBe(1);
 });
 
 it('needs no bearer token', function (): void {
@@ -159,6 +160,18 @@ it('applies captured events that arrive before authorization and refunds timed o
     expect($timedOut->fresh()?->status)->toBe(PaymentStatus::TimedOut)
         ->and($timedOut->fresh()?->provider_ref)->toBe('fake_ch_LATE');
     Queue::assertPushed(RefundPayment::class, fn ($job) => $job->paymentId === $timedOut->id);
+});
+
+it('rolls back the stored event when webhook processing fails after insertion', function (): void {
+    $payment = Payment::factory()->create();
+    $event = FakeGateway::webhookPayload('payment.captured', (string) $payment->provider_ref, Money::of(1, 'USD'), $payment->id, 'evt_processing_failure');
+    $raw = json_encode($event, JSON_THROW_ON_ERROR);
+    Log::shouldReceive('critical')->once()->andThrow(new RuntimeException('log sink failed'));
+
+    expect(fn () => app(HandleWebhook::class)->handle($raw, FakeGateway::sign($raw)))
+        ->toThrow(RuntimeException::class);
+
+    expect(PaymentWebhookEvent::query()->where('event_id', 'evt_processing_failure')->exists())->toBeFalse();
 });
 
 it('stores the decline code carried by a failed event', function (): void {

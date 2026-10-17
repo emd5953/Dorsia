@@ -14,6 +14,7 @@ use App\Modules\Payments\Exceptions\PaymentConflictException;
 use App\Modules\Payments\Exceptions\PaymentDeclinedException;
 use App\Modules\Payments\Exceptions\PaymentInProgressException;
 use App\Modules\Payments\Exceptions\PaymentTimeoutException;
+use App\Modules\Payments\Jobs\RefundPayment;
 use App\Modules\Payments\Models\Payment;
 use App\Shared\Support\Timestamps;
 use App\Shared\Support\Transactions;
@@ -120,9 +121,20 @@ class AuthorizePayment
             'provider_ref' => $result->providerRef,
         ]);
 
-        // A webhook may have advanced the row first; either way it must now hold a live authorization.
         $current = Payment::query()->findOrFail($payment->id);
 
+        if ($current->status === PaymentStatus::TimedOut) {
+            Payment::query()
+                ->whereKey($payment->id)
+                ->whereNull('provider_ref')
+                ->update(['provider_ref' => $result->providerRef]);
+
+            RefundPayment::dispatch($payment->id)->afterCommit();
+
+            throw new PaymentTimeoutException;
+        }
+
+        // A webhook may have advanced the row first; either way it must now hold a live authorization.
         if (! in_array($current->status, [PaymentStatus::Authorized, PaymentStatus::Captured], true)) {
             throw new PaymentConflictException('The payment changed state while it was being authorized.');
         }

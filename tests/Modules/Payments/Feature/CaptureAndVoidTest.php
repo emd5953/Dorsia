@@ -320,6 +320,62 @@ it('queues a RefundPayment retry when the gateway refund fails or times out', fu
     Queue::assertPushed(RefundPayment::class, fn (RefundPayment $job) => $job->paymentId === $payment->id);
 })->with([false, true]);
 
+it('logs and queues a refund retry for any throwable from void', function (): void {
+    Queue::fake();
+    Log::spy();
+    $payment = authorizedPayment();
+    $gateway = Mockery::mock(PaymentGateway::class);
+    $gateway->shouldReceive('refund')->once()->andThrow(new RuntimeException('provider crashed'));
+
+    (new VoidPayment($gateway))->handle($payment->id);
+
+    expect($payment->fresh()?->status)->toBe(PaymentStatus::Refunded);
+    Queue::assertPushed(RefundPayment::class, fn (RefundPayment $job): bool => $job->paymentId === $payment->id);
+    Log::shouldHaveReceived('error')->once();
+});
+
+it('retries a successful but timed out void using the same provider idempotency key', function (): void {
+    $payment = authorizedPayment();
+    $fake = fakeGateway();
+    $gateway = new class($fake) implements PaymentGateway
+    {
+        private bool $first = true;
+
+        public function __construct(private readonly PaymentGateway $inner) {}
+
+        public function authorize(AuthorizeRequest $request): GatewayResult
+        {
+            return $this->inner->authorize($request);
+        }
+
+        public function capture(string $providerRef, Money $amount, string $idempotencyKey): GatewayResult
+        {
+            return $this->inner->capture($providerRef, $amount, $idempotencyKey);
+        }
+
+        public function refund(string $providerRef, Money $amount, string $idempotencyKey): GatewayResult
+        {
+            $result = $this->inner->refund($providerRef, $amount, $idempotencyKey);
+            if ($this->first) {
+                $this->first = false;
+                throw new GatewayTimeoutException;
+            }
+
+            return $result;
+        }
+
+        public function payout(string $destination, Money $amount, string $idempotencyKey): GatewayResult
+        {
+            return $this->inner->payout($destination, $amount, $idempotencyKey);
+        }
+    };
+
+    (new VoidPayment($gateway))->handle($payment->id);
+    (new RefundPayment($payment->id))->handle($fake);
+
+    expect(fakeGateway()->charges()[0]['status'])->toBe('refunded');
+});
+
 it('does not queue a retry when the refund succeeds', function (): void {
     Queue::fake();
     $payment = authorizedPayment();

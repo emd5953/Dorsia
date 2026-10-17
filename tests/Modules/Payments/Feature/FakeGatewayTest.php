@@ -152,6 +152,20 @@ it('applies the capture amount rules', function (): void {
         ->and(fakeGateway()->capture($ref, Money::of(4000, 'USD'), 'c4')->status)->toBe(GatewayStatus::Captured);
 });
 
+it('rejects a refund amount in a different currency from the charge', function (): void {
+    $ref = 'fake_ch_foreign_currency';
+    Redis::connection()->hset('fakegw:charges', $ref, json_encode([
+        'amount_cents' => 5000,
+        'currency' => 'EUR',
+        'status' => 'authorized',
+        'idempotency_key' => 'foreign-currency',
+        'payment_id' => 7,
+    ], JSON_THROW_ON_ERROR));
+
+    expect(fakeGateway()->refund($ref, Money::of(5000, 'USD'), 'refund-usd')->status)->toBe(GatewayStatus::Failed)
+        ->and(fakeGateway()->charges()[0]['status'])->toBe('authorized');
+});
+
 it('failNextCapture fails exactly one capture, then resets', function (): void {
     $ref = (string) fakeGateway()->authorize(gatewayRequest())->providerRef;
     fakeGateway()->failNextCapture();
