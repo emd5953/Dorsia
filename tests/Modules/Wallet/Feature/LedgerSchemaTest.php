@@ -138,6 +138,29 @@ it('lets a venue_payable account go negative (only member accounts are protected
     expect(DB::table('ledger_accounts')->where('id', $account->id)->value('balance_cents'))->toBe(-1);
 });
 
+it('rejects deleting both unused and used ledger accounts', function (bool $used): void {
+    $account = LedgerAccount::factory()->create();
+
+    if ($used) {
+        $other = LedgerAccount::factory()->create([
+            'owner_type' => 'system',
+            'owner_id' => 0,
+            'kind' => AccountKind::Platform,
+        ]);
+        rawLedgerInsert([[$account->id, 100], [$other->id, -100]], key: 'delete:used');
+    }
+
+    expectDatabaseRejects(
+        fn () => DB::table('ledger_accounts')->where('id', $account->id)->delete(),
+        'accounts cannot be deleted',
+    );
+
+    expect(DB::table('ledger_accounts')->where('id', $account->id)->exists())->toBeTrue();
+})->with([
+    'unused account' => false,
+    'used account' => true,
+]);
+
 it('keeps ledger account identity columns immutable', function (string $column, mixed $value): void {
     $account = LedgerAccount::factory()->create();
 
@@ -172,12 +195,13 @@ it('enforces owner/kind pairing and one account per owner, kind and currency', f
 it('defines the three triggers as the contract says', function (): void {
     $triggers = DB::table('pg_trigger')
         ->join('pg_class', 'pg_class.oid', '=', 'pg_trigger.tgrelid')
-        ->whereIn('pg_class.relname', ['ledger_entries', 'ledger_transactions'])
+        ->whereIn('pg_class.relname', ['ledger_accounts', 'ledger_entries', 'ledger_transactions'])
         ->where('pg_trigger.tgisinternal', false)
         ->get(['pg_trigger.tgname', 'pg_class.relname', 'pg_trigger.tgdeferrable', 'pg_trigger.tginitdeferred', 'pg_trigger.tgtype', 'pg_trigger.tgconstraint'])
         ->keyBy('tgname');
 
     expect($triggers->keys()->sort()->values()->all())->toBe([
+        'ledger_accounts_identity_immutable',
         'ledger_entries_append_only',
         'ledger_entries_balanced',
         'ledger_entries_parent_is_current',
@@ -203,4 +227,15 @@ it('defines the three triggers as the contract says', function (): void {
             ->and($triggers[$name]->tgtype & 8)->toBe(8)   // DELETE
             ->and($triggers[$name]->tgtype & 16)->toBe(16); // UPDATE
     }
+
+    $accountGuard = $triggers['ledger_accounts_identity_immutable'];
+    expect($accountGuard->relname)->toBe('ledger_accounts')
+        ->and($accountGuard->tgtype & 1)->toBe(1)  // row-level
+        ->and($accountGuard->tgtype & 2)->toBe(2)  // BEFORE
+        ->and($accountGuard->tgtype & 8)->toBe(8)  // DELETE
+        ->and($accountGuard->tgtype & 16)->toBe(16); // UPDATE
+
+    $appendGuard = DB::selectOne("SELECT pg_get_functiondef('ledger_assert_entry_parent_is_current'::regproc) AS source");
+    expect($appendGuard->source)->toContain('created_xid = pg_current_xact_id()')
+        ->and($appendGuard->source)->not->toContain('xmin');
 });

@@ -200,13 +200,36 @@ it('inserts all entries of a transaction with one multi-row INSERT and locks acc
 it('never calls SQL now() in Wallet application code (C§3)', function (): void {
     $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(app_path('Modules/Wallet'), FilesystemIterator::SKIP_DOTS));
     $offenders = [];
+    $sqlTimeFunction = '/(?:\bnow\s*\(\)|\bcurrent_timestamp\b|\bclock_timestamp\s*\(\)|\bstatement_timestamp\s*\(\)|\btransaction_timestamp\s*\(\)|\blocaltimestamp\b)/i';
 
     foreach ($iterator as $file) {
         if (! $file instanceof SplFileInfo || $file->getExtension() !== 'php' || str_contains($file->getPathname(), '/Migrations/')) {
             continue;
         }
 
-        if (preg_match('/(?<!>)\b(SELECT|INSERT|UPDATE|WHERE)\b[^;\n]*\bNOW\(\)|CURRENT_TIMESTAMP/i', (string) file_get_contents($file->getPathname())) === 1) {
+        $source = (string) file_get_contents($file->getPathname());
+        $insideHeredoc = false;
+        $stringContent = '';
+
+        foreach (token_get_all($source) as $token) {
+            if (is_array($token) && $token[0] === T_START_HEREDOC) {
+                $insideHeredoc = true;
+
+                continue;
+            }
+
+            if (is_array($token) && $token[0] === T_END_HEREDOC) {
+                $insideHeredoc = false;
+
+                continue;
+            }
+
+            if (is_array($token) && ($token[0] === T_CONSTANT_ENCAPSED_STRING || ($insideHeredoc && $token[0] === T_ENCAPSED_AND_WHITESPACE))) {
+                $stringContent .= $token[1]."\n";
+            }
+        }
+
+        if (preg_match($sqlTimeFunction, $stringContent) === 1) {
             $offenders[] = $file->getPathname();
         }
     }

@@ -39,6 +39,10 @@ return new class extends Migration
         DB::unprepared(<<<'SQL'
             CREATE OR REPLACE FUNCTION ledger_assert_account_identity_unchanged() RETURNS trigger AS $$
             BEGIN
+                IF TG_OP = 'DELETE' THEN
+                    RAISE EXCEPTION 'ledger account identity is immutable: accounts cannot be deleted';
+                END IF;
+
                 IF NEW.id IS DISTINCT FROM OLD.id
                     OR NEW.owner_type IS DISTINCT FROM OLD.owner_type
                     OR NEW.owner_id IS DISTINCT FROM OLD.owner_id
@@ -56,7 +60,7 @@ return new class extends Migration
 
         DB::unprepared(<<<'SQL'
             CREATE TRIGGER ledger_accounts_identity_immutable
-                BEFORE UPDATE ON ledger_accounts
+                BEFORE UPDATE OR DELETE ON ledger_accounts
                 FOR EACH ROW EXECUTE FUNCTION ledger_assert_account_identity_unchanged()
             SQL);
     }
