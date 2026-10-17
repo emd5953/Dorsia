@@ -9,6 +9,7 @@ return [
     'hold_expiring_notice_seconds' => 60,
     'gate' => [
         'rebuild_lock_seconds' => 5,
+        'refresh_seconds' => 5,
         'rebuild_recent_minutes' => 2,
     ],
     'sweep_batch' => 500,

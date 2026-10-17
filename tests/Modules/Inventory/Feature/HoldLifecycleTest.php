@@ -9,6 +9,7 @@ use App\Modules\Inventory\Enums\HoldReleaseReason;
 use App\Modules\Inventory\Exceptions\HoldNotFoundException;
 use App\Modules\Inventory\Models\Hold;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Redis;
 use Tests\Modules\Inventory\Support\Fixtures;
 
@@ -111,6 +112,26 @@ it('ReleaseHold carries the payment_timeout reason into the outbox', function ()
     app(ReleaseHold::class)->handle($hold->id, HoldReleaseReason::PaymentTimeout);
 
     expect(Fixtures::outbox('slot.released')->first()->payload['reason'])->toBe('payment_timeout');
+});
+
+it('HoldCloser does not release a gate unit when its enclosing transaction rolls back', function (): void {
+    $slot = Fixtures::slot(['capacity' => 2]);
+    $hold = Fixtures::hold($slot);
+    $gate = Fixtures::gate($slot);
+
+    try {
+        DB::transaction(function () use ($hold): void {
+            app(ReleaseHold::class)->handle($hold->id, HoldReleaseReason::PaymentFailed);
+            throw new RuntimeException('rollback closer');
+        });
+    } catch (RuntimeException) {
+        // expected
+    }
+
+    expect(Fixtures::gate($slot))->toBe($gate)
+        ->and($slot->fresh()->held_count)->toBe(1)
+        ->and(Hold::query()->findOrFail($hold->id)->status)->toBe('active')
+        ->and(Fixtures::outbox('slot.released'))->toHaveCount(0);
 });
 
 it('ReleaseHold does not touch a hold that was already expired or converted', function (): void {

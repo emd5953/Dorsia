@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 use App\Modules\Inventory\Actions\ConvertHoldToBooking;
 use App\Modules\Inventory\Actions\ExpireHold;
+use App\Modules\Inventory\Actions\HoldSlot;
 use App\Modules\Inventory\Actions\ReleaseBooking;
 use App\Modules\Inventory\Actions\ReleaseHold;
+use App\Modules\Inventory\Data\HoldSlotInput;
 use App\Modules\Inventory\Enums\HoldReleaseReason;
+use App\Modules\Inventory\Exceptions\SoldOutException;
 use App\Modules\Inventory\Models\Drop;
 use App\Modules\Inventory\Models\Hold;
 use App\Modules\Inventory\Models\Slot;
@@ -16,6 +19,7 @@ use App\Shared\Outbox\OutboxEvent;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Redis;
+use Illuminate\Support\Str;
 use Tests\Modules\Inventory\Support\Fixtures;
 use Tests\Support\Concurrency;
 
@@ -168,6 +172,29 @@ it('rebuilds a missing gate once and consistently when 20 processes ask at the s
 
     expect($results)->toBe(array_fill(0, 20, true))
         ->and(Fixtures::gate($slot))->toBe(4);
+});
+
+it('allows at most one refresh rebuild for 20 parallel sold-out requests in a refresh window', function (): void {
+    $slot = Fixtures::slot(['capacity' => 1, 'booked_count' => 1]);
+    $members = array_map(fn () => Fixtures::member()->id, range(1, 20));
+    Redis::connection()->command('set', ["slot_gate:{$slot->id}", 0]);
+
+    $results = Concurrency::run(array_map(function (int $memberId) use ($slot): Closure {
+        return function () use ($slot, $memberId): string {
+            try {
+                app(HoldSlot::class)->handle(new HoldSlotInput($memberId, $slot->id, 2, (string) Str::uuid()));
+
+                return 'held';
+            } catch (SoldOutException) {
+                return 'sold_out';
+            }
+        };
+    }, $members));
+
+    expect(array_count_values($results))->toBe(['sold_out' => 20])
+        ->and(Fixtures::gate($slot))->toBe(0)
+        ->and(Redis::connection()->command('exists', ["slot_gate:{$slot->id}:refresh"]))->toBe(1)
+        ->and(Hold::query()->count())->toBe(0);
 });
 
 it('serialises ReleaseBooking: 20 parallel releases of a 5-booked slot take it to zero and no lower', function (): void {

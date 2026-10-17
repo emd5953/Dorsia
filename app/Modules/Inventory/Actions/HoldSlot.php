@@ -62,21 +62,47 @@ class HoldSlot
 
         $this->validate($slot, $input->partySize);
 
-        $unitTaken = $this->takeGateUnit($input->slotId);
+        [$unitTaken, $refreshOwner] = $this->takeGateUnit($input->slotId);
+        $pendingCompleted = false;
 
         try {
             return $this->place($input, $slot, $inTransaction);
         } catch (SoldOutException $e) {
-            // Postgres rejected: the gate was rebuilt from truth, never incremented.
+            if ($unitTaken) {
+                $this->gate->completeAttempt($input->slotId);
+                $pendingCompleted = true;
+            }
+            // Postgres rejected: rebuild under the same guard; never return a gate unit.
+            $refreshOwner
+                ? $this->gate->rebuild($input->slotId, force: true)
+                : $this->gate->refresh($input->slotId);
             throw $e;
         } catch (UniqueConstraintViolationException $e) {
             $this->releaseUnit($unitTaken, $input->slotId);
+            if ($unitTaken) {
+                $this->gate->completeAttempt($input->slotId);
+                $pendingCompleted = true;
+            }
+            if ($refreshOwner) {
+                $this->gate->rebuild($input->slotId, force: true);
+            }
 
             return $this->replay($input->idempotencyKey) ?? throw new ActiveHoldExistsException;
         } catch (Throwable $e) {
             $this->releaseUnit($unitTaken, $input->slotId);
+            if ($unitTaken) {
+                $this->gate->completeAttempt($input->slotId);
+                $pendingCompleted = true;
+            }
+            if ($refreshOwner) {
+                $this->gate->rebuild($input->slotId, force: true);
+            }
 
             throw $e;
+        } finally {
+            if ($unitTaken && ! $pendingCompleted) {
+                $this->gate->completeAttempt($input->slotId);
+            }
         }
     }
 
@@ -97,13 +123,10 @@ class HoldSlot
         }
     }
 
-    /**
-     * @return bool whether a gate unit was taken (false when the counter could not be built)
-     *
-     * @throws SoldOutException
-     */
-    private function takeGateUnit(int $slotId): bool
+    /** @return array{bool, bool} whether a unit was taken and whether this request owns the refresh window */
+    private function takeGateUnit(int $slotId): array
     {
+        $refreshOwner = false;
         $result = $this->gate->acquire($slotId);
 
         if ($result === SlotGate::MISSING) {
@@ -112,10 +135,15 @@ class HoldSlot
         }
 
         if ($result === SlotGate::SOLD_OUT) {
-            throw new SoldOutException;
+            $refreshOwner = $this->gate->refresh($slotId);
+            if (! $refreshOwner || $this->gate->acquire($slotId) === SlotGate::SOLD_OUT) {
+                throw new SoldOutException;
+            }
+
+            $result = $this->gate->value($slotId);
         }
 
-        return $result !== SlotGate::MISSING;
+        return [$result !== SlotGate::MISSING, $refreshOwner];
     }
 
     private function releaseUnit(bool $unitTaken, int $slotId): void
@@ -155,8 +183,6 @@ class HoldSlot
                 $this->expireOverdue->handle($input->slotId);
             }
         }
-
-        $this->gate->rebuild($input->slotId, force: true);
 
         throw new SoldOutException;
     }

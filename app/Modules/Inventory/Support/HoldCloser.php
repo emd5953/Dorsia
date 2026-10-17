@@ -57,7 +57,8 @@ final class HoldCloser
             $this->outbox->record(OutboxTopic::SlotReleased, SlotRows::payload($slot, $now, $reason));
 
             $slotId = (int) $hold->slot_id;
-            DB::afterCommit(fn () => $this->gate->release($slotId));
+            $generation = $this->gate->generation($slotId);
+            DB::afterCommit(fn () => $this->gate->releaseIfGeneration($slotId, $generation));
 
             return true;
         });

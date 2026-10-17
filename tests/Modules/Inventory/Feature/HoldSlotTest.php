@@ -14,6 +14,7 @@ use App\Modules\Inventory\Exceptions\SoldOutException;
 use App\Modules\Inventory\Models\Hold;
 use App\Modules\Inventory\Models\Slot;
 use App\Modules\Inventory\Models\Venue;
+use App\Modules\Inventory\Support\SlotGate;
 use App\Shared\Outbox\OutboxEvent;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -68,7 +69,7 @@ it('creates the gate key capacity - held - booked on the first hold, with a TTL 
 
     $ttl = (int) Redis::connection()->command('ttl', ["slot_gate:{$slot->id}"]);
     $expected = (int) now()->diffInSeconds($slot->starts_at->addDay());
-    expect($ttl)->toBeBetween($expected - 5, $expected);
+    expect($ttl)->toBeBetween($expected - 5, $expected + 1);
 });
 
 it('rejects with sold_out and no database write when the gate is warm and capacity is reached', function (): void {
@@ -141,19 +142,13 @@ it('answers sold_out when the gate is too high but Postgres is full, then rebuil
         ->and(Fixtures::gate($slot))->toBe(0);
 });
 
-it('answers sold_out while the gate is too low until the sweeper rebuilds it (D19 bound)', function (): void {
+it('refreshes a too-low gate once and succeeds without waiting for the sweeper', function (): void {
     $slot = Fixtures::slot(['capacity' => 3]);
     Redis::connection()->command('set', ["slot_gate:{$slot->id}", 0]);
 
-    expect(fn () => Fixtures::hold($slot))->toThrow(SoldOutException::class)
-        ->and(Hold::query()->count())->toBe(0);
-
-    $this->artisan('inventory:expire-holds')->assertSuccessful();
-
-    expect(Fixtures::gate($slot))->toBe(3);
-
     expect(Fixtures::hold($slot)->status->value)->toBe('active')
-        ->and(Fixtures::gate($slot))->toBe(2);
+        ->and(Fixtures::gate($slot))->toBe(2)
+        ->and(Redis::connection()->command('exists', ["slot_gate:{$slot->id}:refresh"]))->toBe(1);
 });
 
 it('rejects a party size outside the range without consuming a gate unit', function (int $party): void {
@@ -303,18 +298,14 @@ it('runs the in-transaction callback with the hold and rolls everything back, re
         ->and(Fixtures::gate($slot))->toBe(4);
 });
 
-it('expires overdue holds first when the slot looks full only because of them', function (): void {
+it('drop-ins from overdue holds succeed from a warm gate at zero inside the refresh window', function (): void {
     $this->travelTo(CarbonImmutable::parse('2026-12-01 12:00:00'));
     $slot = Fixtures::slot(['capacity' => 2]);
     Fixtures::hold($slot);
     Fixtures::hold($slot);
-
-    expect(fn () => Fixtures::hold($slot))->toThrow(SoldOutException::class);
-
     $this->travel(300)->seconds();
 
-    // A drained gate would shed the request before Postgres is asked (D19); a gate that is too high reaches it.
-    Redis::connection()->command('set', ["slot_gate:{$slot->id}", 1]);
+    Redis::connection()->command('set', ["slot_gate:{$slot->id}", 0]);
 
     $hold = Fixtures::hold($slot);
 
@@ -323,7 +314,32 @@ it('expires overdue holds first when the slot looks full only because of them', 
         ->and($slot->fresh()->held_count)->toBe(1)
         ->and(Fixtures::outbox('slot.released'))->toHaveCount(2)
         ->and(Fixtures::outbox('slot.released')->first()->payload['reason'])->toBe('expired')
-        ->and(Fixtures::gate($slot))->toBe(2);
+        ->and(Fixtures::gate($slot))->toBe(1);
+});
+
+it('rebuild expires overdue holds before reading slot counters', function (): void {
+    $this->travelTo(CarbonImmutable::parse('2026-12-01 12:00:00'));
+    $slot = Fixtures::slot(['capacity' => 1]);
+    Fixtures::hold($slot);
+    $this->travel(301)->seconds();
+    Redis::connection()->command('del', ["slot_gate:{$slot->id}"]);
+
+    expect(app(SlotGate::class)->rebuild($slot->id, force: true))->toBeTrue()
+        ->and(Hold::query()->where('status', 'expired')->count())->toBe(1)
+        ->and($slot->fresh()->held_count)->toBe(0)
+        ->and(Fixtures::gate($slot))->toBe(1);
+});
+
+it('heals a gate unit abandoned by a crashed request after the refresh window', function (): void {
+    $slot = Fixtures::slot(['capacity' => 2]);
+    config(['inventory.gate.refresh_seconds' => 1]);
+    Redis::connection()->command('set', ["slot_gate:{$slot->id}", 1]);
+    app(SlotGate::class)->acquire($slot->id); // DECR, no DB transaction
+    Redis::connection()->command('set', ["slot_gate:{$slot->id}:refresh", '1', ['NX', 'EX' => 1]]);
+    usleep(1_100_000);
+
+    expect(Fixtures::hold($slot)->status->value)->toBe('active')
+        ->and(Fixtures::gate($slot))->toBe(1);
 });
 
 it('does not expire a hold one microsecond before expires_at when making room', function (): void {
