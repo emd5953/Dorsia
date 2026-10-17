@@ -7,7 +7,7 @@ use App\Shared\Outbox\OutboxEvent;
 use Carbon\CarbonImmutable;
 
 it('prunes published rows strictly older than retention and keeps unpublished rows', function (): void {
-    $now = CarbonImmutable::parse('2026-10-17T12:00:00Z');
+    $now = CarbonImmutable::parse('2026-10-17T08:00:00.123456-04:00');
     $boundary = $now->subDays(7);
     $old = OutboxEvent::query()->create(['topic' => 'wallet.updated', 'payload' => [], 'created_at' => $now->subDays(8), 'published_at' => $boundary->subMicrosecond()]);
     $atBoundary = OutboxEvent::query()->create(['topic' => 'wallet.updated', 'payload' => [], 'created_at' => $now->subDays(8), 'published_at' => $boundary]);

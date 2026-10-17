@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Realtime\Actions;
 
 use App\Shared\Outbox\OutboxEvent;
+use App\Shared\Support\Timestamps;
 use Carbon\CarbonImmutable;
 
 class PruneOutbox
@@ -15,7 +16,7 @@ class PruneOutbox
 
         return OutboxEvent::query()
             ->whereNotNull('published_at')
-            ->where('published_at', '<', $cutoff)
+            ->where('published_at', '<', Timestamps::bind($cutoff))
             ->delete();
     }
 }

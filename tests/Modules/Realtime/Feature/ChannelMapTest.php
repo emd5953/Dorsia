@@ -28,3 +28,8 @@ it('maps every outbox topic to its contract channel and exact event', function (
             ->and($target->event)->toBe($event);
     }
 });
+
+it('rejects non integer and non positive channel identifiers', function (): void {
+    expect(fn () => ChannelMap::map(OutboxTopic::SlotHeld, ['venue_id' => '5']))->toThrow(InvalidArgumentException::class)
+        ->and(fn () => ChannelMap::map(OutboxTopic::SlotHeld, ['venue_id' => 0]))->toThrow(InvalidArgumentException::class);
+});

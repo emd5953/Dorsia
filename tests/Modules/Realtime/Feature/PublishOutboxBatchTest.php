@@ -10,6 +10,7 @@ use App\Shared\Outbox\OutboxTopic;
 use Illuminate\Contracts\Broadcasting\Factory as BroadcastFactory;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Log;
 
 it('publishes in id order with payload plus outbox id, then is idempotent', function (): void {
     $cases = [
@@ -59,6 +60,19 @@ it('does not publish an outbox row rolled back with its transaction', function (
     Event::assertNotDispatched(OutboxBroadcast::class);
 });
 
+it('selects pending rows with SKIP LOCKED', function (): void {
+    $sql = null;
+    DB::listen(static function ($query) use (&$sql): void {
+        if (str_contains(strtolower($query->sql), 'outbox_events') && str_contains(strtolower($query->sql), 'for update')) {
+            $sql = strtolower($query->sql);
+        }
+    });
+
+    app(PublishOutboxBatch::class)->handle();
+
+    expect($sql)->not->toBeNull()->toContain('skip locked');
+});
+
 it('stops at a failed row and increments attempts before retrying it first', function (): void {
     $first = OutboxEvent::query()->create(['topic' => OutboxTopic::SlotHeld->value, 'payload' => ['venue_id' => 1], 'created_at' => now()]);
     $second = OutboxEvent::query()->create(['topic' => OutboxTopic::SlotHeld->value, 'payload' => ['venue_id' => 2], 'created_at' => now()]);
@@ -82,4 +96,41 @@ it('stops at a failed row and increments attempts before retrying it first', fun
     app()->instance(BroadcastFactory::class, $healthyFactory);
     expect(app(PublishOutboxBatch::class)->handle())->toBe(2);
     expect($retried)->toBe([1, 2]);
+});
+
+it('dead-letters unmappable rows immediately and continues with later rows', function (): void {
+    Log::spy();
+    $bad = OutboxEvent::query()->create(['topic' => 'unknown.topic', 'payload' => [], 'created_at' => now()]);
+    $badPayload = OutboxEvent::query()->create(['topic' => OutboxTopic::SlotHeld->value, 'payload' => ['venue_id' => '5'], 'created_at' => now()]);
+    $valid = OutboxEvent::query()->create(['topic' => OutboxTopic::SlotHeld->value, 'payload' => ['venue_id' => 5, 'slot_id' => 4, 'private_note' => 'secret'], 'created_at' => now()]);
+    Event::fake([OutboxBroadcast::class]);
+
+    expect(app(PublishOutboxBatch::class)->handle())->toBe(1)
+        ->and($bad->fresh()->attempts)->toBe(5)
+        ->and($badPayload->fresh()->attempts)->toBe(5)
+        ->and($valid->fresh()->published_at)->not->toBeNull();
+    Event::assertDispatched(OutboxBroadcast::class, fn (OutboxBroadcast $event): bool => ! array_key_exists('private_note', $event->broadcastWith()));
+    Log::shouldHaveReceived('critical')->twice();
+});
+
+it('dead-letters a validly mapped row after five broadcast failures and proceeds', function (): void {
+    Log::spy();
+    $failed = OutboxEvent::query()->create(['topic' => OutboxTopic::SlotHeld->value, 'payload' => ['venue_id' => 1], 'created_at' => now(), 'attempts' => 4]);
+    $later = OutboxEvent::query()->create(['topic' => OutboxTopic::SlotHeld->value, 'payload' => ['venue_id' => 2], 'created_at' => now()]);
+    config(['broadcasting.default' => 'reverb']);
+    $factory = Mockery::mock(BroadcastFactory::class);
+    $factory->shouldReceive('queue')->twice()->andReturnUsing(static function () {
+        static $calls = 0;
+        if (++$calls === 1) {
+            throw new RuntimeException('temporary failure');
+        }
+
+        return null;
+    });
+    app()->instance(BroadcastFactory::class, $factory);
+
+    expect(app(PublishOutboxBatch::class)->handle())->toBe(1)
+        ->and($failed->fresh()->attempts)->toBe(5)
+        ->and($later->fresh()->published_at)->not->toBeNull();
+    Log::shouldHaveReceived('critical')->once();
 });

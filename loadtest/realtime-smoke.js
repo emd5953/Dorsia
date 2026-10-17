@@ -1,8 +1,12 @@
 import http from 'k6/http';
-import { check, fail } from 'k6';
+import { check } from 'k6';
 import { WebSocket } from 'k6/websockets';
 
-export const options = { vus: 1, iterations: 1 };
+export const options = {
+  vus: 1,
+  iterations: 1,
+  thresholds: { checks: ['rate==1'] },
+};
 
 const base = __ENV.BASE_URL || 'http://app:8000';
 const wsBase = __ENV.REVERB_WS_URL || 'ws://reverb:8080';
@@ -16,60 +20,62 @@ export default function () {
     password: __ENV.DEMO_PASSWORD || 'password',
     device_name: 'realtime-smoke',
   }), { headers: { 'Content-Type': 'application/json', Accept: 'application/json' } });
-  check(login, { 'demo login succeeds': (r) => r.status === 201 }) || fail('login failed');
-  const body = login.json('data');
-  const token = body.token;
-  const memberId = body.member.id;
+  check(login, { 'demo login succeeds': (r) => r.status === 201 });
+  if (login.status !== 201) return;
+  const token = login.json('data.token');
+  const memberId = login.json('data.member.id');
   const appKey = __ENV.REVERB_APP_KEY || 'dorsia-key';
   const ws = new WebSocket(`${wsBase}/app/${appKey}?protocol=7&client=js&version=8.4.0&flash=false`);
-  let socketId;
-  let held = false;
+  let subscriptions = 0;
   let holdSent = false;
-  let finished = false;
-  let holdResponse;
+  let received = false;
 
-  ws.onopen = () => ws.setTimeout(() => {
-    if (!finished) {
-      finished = true;
-      ws.close();
-      fail('slot.held did not arrive within five seconds');
-    }
-  }, 5000);
+  ws.addEventListener('open', () => {
+    setTimeout(() => {
+      if (!received) {
+        check(false, { 'slot.held arrives within five seconds with requested slot_id': () => false });
+        ws.close();
+      }
+    }, 5000);
+  });
 
-  ws.onmessage = (message) => {
-    const envelope = JSON.parse(message.data);
+  ws.addEventListener('message', (message) => {
+    let envelope;
+    try { envelope = JSON.parse(message.data); } catch (_) { return; }
     if (envelope.event === 'pusher:connection_established') {
-      socketId = JSON.parse(envelope.data).socket_id;
+      const socketId = JSON.parse(envelope.data).socket_id;
       const privateChannel = `private-member.${memberId}`;
       const auth = http.post(`${base}/broadcasting/auth`, {
         socket_id: socketId,
         channel_name: privateChannel,
       }, { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/x-www-form-urlencoded' } });
-      check(auth, { 'private channel auth succeeds': (r) => r.status === 200 }) || fail('private channel auth failed');
+      check(auth, { 'private channel auth succeeds': (r) => r.status === 200 });
+      if (auth.status !== 200) { ws.close(); return; }
       ws.send(JSON.stringify({ event: 'pusher:subscribe', data: { channel: `venue.${venueId}.slots` } }));
       ws.send(JSON.stringify({ event: 'pusher:subscribe', data: { channel: privateChannel, auth: auth.json('auth') } }));
     }
-    if (envelope.event === 'pusher_internal:subscription_succeeded' && !holdSent) {
-      // Wait until both venue and private subscriptions are acknowledged.
-      ws.subscriptions = (ws.subscriptions || 0) + 1;
-      if (ws.subscriptions === 2) {
+    if (envelope.event === 'pusher_internal:subscription_succeeded') {
+      subscriptions++;
+      if (subscriptions === 2 && !holdSent) {
         holdSent = true;
-        holdResponse = http.post(`${base}/api/holds`, JSON.stringify({ slot_id: slotId, party_size: partySize }), {
+        if (__ENV.SMOKE_STUB === '1') return;
+        const hold = http.post(`${base}/api/holds`, JSON.stringify({ slot_id: slotId, party_size: partySize }), {
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json', 'Idempotency-Key': `realtime-smoke-${Date.now()}` },
         });
-        check(holdResponse, { 'hold request succeeds': (r) => r.status === 201 }) || fail(`hold failed: ${holdResponse.status}`);
+        check(hold, { 'hold request succeeds': (r) => r.status === 201 });
+        if (hold.status !== 201) ws.close();
       }
     }
     if (envelope.event === 'slot.held') {
       const payload = typeof envelope.data === 'string' ? JSON.parse(envelope.data) : envelope.data;
-      if (payload.slot_id === slotId) {
-        held = true;
-        finished = true;
+      if (Number(payload.slot_id) === slotId) {
+        received = true;
+        check(true, { 'slot.held arrives within five seconds with requested slot_id': (value) => value });
         ws.close();
       }
     }
-  };
-
-  ws.connect();
-  check(held, { 'slot.held arrives with requested slot_id': (value) => value === true });
+  });
+  ws.addEventListener('error', () => {
+    check(false, { 'websocket connects and stays healthy': () => false });
+  });
 }

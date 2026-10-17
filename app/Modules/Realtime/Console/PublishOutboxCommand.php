@@ -6,10 +6,12 @@ namespace App\Modules\Realtime\Console;
 
 use App\Modules\Realtime\Actions\PublishOutboxBatch;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
+use Throwable;
 
 final class PublishOutboxCommand extends Command
 {
-    protected $signature = 'realtime:publish-outbox {--once} {--limit=100} {--sleep-ms=100}';
+    protected $signature = 'realtime:publish-outbox {--once} {--limit=} {--sleep-ms=}';
 
     protected $description = 'Publish committed outbox events to Reverb';
 
@@ -17,8 +19,9 @@ final class PublishOutboxCommand extends Command
 
     public function handle(PublishOutboxBatch $publisher): int
     {
-        $limit = max(1, (int) $this->option('limit'));
-        $sleepMs = max(0, (int) $this->option('sleep-ms'));
+        $limit = max(1, (int) ($this->option('limit') ?? config('realtime.outbox.batch', 100)));
+        $sleepMs = max(0, (int) ($this->option('sleep-ms') ?? config('realtime.outbox.sleep_ms', 100)));
+        $backoffSeconds = 1;
 
         if (function_exists('pcntl_async_signals')) {
             pcntl_async_signals(true);
@@ -31,7 +34,20 @@ final class PublishOutboxCommand extends Command
                 break;
             }
 
-            $count = $publisher->handle($limit);
+            try {
+                $count = $publisher->handle($limit);
+                $backoffSeconds = 1;
+            } catch (Throwable $exception) {
+                report($exception);
+                DB::purge();
+                if ($this->option('once')) {
+                    return self::FAILURE;
+                }
+                sleep($backoffSeconds);
+                $backoffSeconds = min(30, $backoffSeconds * 2);
+
+                continue;
+            }
 
             if ($this->option('once')) {
                 break;

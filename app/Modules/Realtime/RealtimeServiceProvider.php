@@ -6,6 +6,7 @@ namespace App\Modules\Realtime;
 
 use App\Modules\Realtime\Console\PruneOutboxCommand;
 use App\Modules\Realtime\Console\PublishOutboxCommand;
+use App\Modules\Realtime\Http\ValidateBroadcastAuthRequest;
 use App\Shared\Members\Member;
 use App\Shared\Support\ModuleServiceProvider;
 use Illuminate\Console\Scheduling\Schedule;
@@ -17,7 +18,7 @@ final class RealtimeServiceProvider extends ModuleServiceProvider
     {
         parent::boot();
 
-        Broadcast::routes(['middleware' => ['auth:sanctum']]);
+        Broadcast::routes(['middleware' => ['auth:sanctum', ValidateBroadcastAuthRequest::class]]);
         Broadcast::channel('member.{memberId}', fn (Member $member, int $memberId): bool => (int) $member->id === $memberId);
     }
 
