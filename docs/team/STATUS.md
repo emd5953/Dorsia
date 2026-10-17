@@ -20,7 +20,7 @@ Orchestrator state for the steps 1–8 build. Updated at every milestone so anot
 ## Running
 
 - `inventory-eval-r2` (Claude eval) on `.claude/worktrees/agent-a6f64a444268d98a6`
-- `realtime-07` (Codex engineer) on `.claude/worktrees/realtime-07`. Its k6 smoke test needs ticket 02 merged before it can run.
+- `realtime-07` (Codex engineer, started before the Claude-first rule; finishes on Codex) on `.claude/worktrees/realtime-07`. Its k6 smoke test needs ticket 02 merged before it can run.
 
 ## Next steps
 
@@ -37,10 +37,13 @@ Orchestrator state for the steps 1–8 build. Updated at every milestone so anot
 - Platform: `docs/team/evals/platform-hardening-r2.md` items 1–5 (incl. Sanctum PersonalAccessToken whole-second timestamps).
 - Pricing: `docs/team/evals/pricing-hardening-r1.md` info items.
 
+## Rules
+
+- Engineers and evals run on Claude (Agent tool, `implementer` and `reviewer`), each registered in `.claude/handoff/tasks/` with `engine: claude` and its agent id. Codex only after the 95% switch.
+
 ## Open decisions for the user
 
 - Codex model and effort for engineering (currently the `~/.codex/config.toml` default: gpt-6-luna, medium).
-- Whether engineering stays on Codex by default or returns to Claude with Codex only as the 95% fallback.
 
 ## Environment notes
 

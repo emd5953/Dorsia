@@ -32,7 +32,7 @@ Out of scope for this run: memberships and coupon grants (step 9), admin API (st
 
 ## Codex split and handoff
 
-- **Who does what.** From ticket 06 on, and for all rework rounds, engineers run on Codex (`codex exec`). Claude keeps the architect and the eval agents.
+- **Who does what.** All agents (architect, engineers, evals) run on Claude. Codex takes over only when Claude plan usage reaches 95% (below). Ticket 07 was started on Codex before this rule and finishes there.
 - **Context.** Codex can't see Claude conversations. Every engineer keeps `HANDOFF.md` at its worktree root (uncommitted), updated at each commit: done and remaining checklist, decisions not yet in the contract, failing tests, exact next step.
 - **Commits.** Codex's sandbox makes `.git` read-only, so Codex leaves changes uncommitted; the orchestrator commits them after the eval.
 - **Switch at 95% usage.** The statusline payload carries Claude plan usage (`rate_limits.five_hour` / `seven_day`). `.claude/hooks/usage-watch.sh` runs from the statusline; when either reaches 95% it runs `codex-handoff.sh --switch` once per reset window. The switch:
