@@ -67,6 +67,8 @@ class QuoteHold
             ->where('venue_id', $venueId)
             ->where('weekday', $weekday)
             ->where('hour', $hour)
+            ->orderByDesc('computed_at')
+            ->orderBy('party_band')
             ->get();
 
         if ($rows->isEmpty()) {
@@ -74,7 +76,7 @@ class QuoteHold
         }
 
         $bandRow = $rows->firstWhere('party_band', $band);
-        $latest = $rows->sortByDesc('computed_at')->firstOrFail();
+        $latest = $rows->firstOrFail();
 
         return new DemandSnapshot(
             computedAt: $latest->computed_at->utc()->toIso8601ZuluString(),
