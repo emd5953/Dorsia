@@ -2,7 +2,7 @@
 
 Orchestrator state for the steps 1–8 build. Updated at every milestone so another orchestrator can take over. Process: [process.md](process.md). Tasks: `.claude/handoff/tasks/`.
 
-*Last updated: 2026-10-17 16:35 EDT*
+*Last updated: 2026-10-17 12:23 EDT — switched to Codex at 96% usage*
 
 ## Tickets
 
