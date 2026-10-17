@@ -36,7 +36,6 @@ services:
   outbox:
     <<: *php
     command: php artisan realtime:publish-outbox
-    profiles: [realtime]
 
   reverb:
     <<: *php
