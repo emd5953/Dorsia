@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Shared\Members;
 
+use App\Shared\Support\Timestamps;
 use Database\Factories\MemberFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -23,6 +24,8 @@ final class Member extends Authenticatable
     use HasFactory;
 
     protected $table = 'members';
+
+    protected $dateFormat = Timestamps::FORMAT;
 
     protected $fillable = ['name', 'email', 'password'];
 

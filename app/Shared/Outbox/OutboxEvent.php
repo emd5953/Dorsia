@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Shared\Outbox;
 
+use App\Shared\Support\Timestamps;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -20,6 +21,8 @@ final class OutboxEvent extends Model
     public $timestamps = false;
 
     protected $table = 'outbox_events';
+
+    protected $dateFormat = Timestamps::FORMAT;
 
     protected $guarded = [];
 

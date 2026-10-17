@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Shared\Idempotency;
 
 use App\Shared\Exceptions\ErrorEnvelope;
+use App\Shared\Support\Timestamps;
 use Closure;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\QueryException;
@@ -41,8 +42,8 @@ final class EnsureIdempotency
                 'request_hash' => $hash,
                 'status' => 'processing',
                 'lock_token' => $token,
-                'locked_at' => $now,
-                'created_at' => $now,
+                'locked_at' => Timestamps::bind($now),
+                'created_at' => Timestamps::bind($now),
             ]);
 
             if ($inserted === 1) {
@@ -75,7 +76,7 @@ final class EnsureIdempotency
                 ->where('key', $key->value)
                 ->where('status', 'processing')
                 ->where('lock_token', $record->lock_token)
-                ->update(['locked_at' => $now, 'lock_token' => $token]);
+                ->update(['locked_at' => Timestamps::bind($now), 'lock_token' => $token]);
 
             if ($taken === 1) {
                 return $this->execute($request, $next, $key, $token);
@@ -114,7 +115,7 @@ final class EnsureIdempotency
                 'response_status' => $response->getStatusCode(),
                 'response_body' => is_string($content) ? $content : null,
                 'response_content_type' => $response->headers->get('Content-Type'),
-                'completed_at' => now(),
+                'completed_at' => Timestamps::bind(now()),
             ]);
         } catch (QueryException $e) {
             // The handler already committed its work; never turn that into a 500.
@@ -122,7 +123,9 @@ final class EnsureIdempotency
             Log::warning('Idempotency completion failed; response not stored.', [
                 'member_id' => $key->memberId,
                 'key' => $key->value,
-                'error' => $e->getMessage(),
+                // Never getMessage(): it embeds the SQL bindings, including the response body.
+                'exception' => $e::class,
+                'sqlstate' => (string) $e->getCode(),
             ]);
 
             $this->owned($key, $token)->delete();
@@ -204,6 +207,8 @@ final class EnsureIdempotency
             JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR,
         );
 
+        // An empty body hashes as `{}` (C§8). A literal top-level `[]` is treated as empty too, so
+        // it collides with `{}` on purpose; nested empty lists and objects stay distinct.
         if ($canonical === '[]') {
             $canonical = '{}';
         }
@@ -214,7 +219,14 @@ final class EnsureIdempotency
     private function canonicalize(mixed $value): mixed
     {
         if (is_array($value)) {
-            return array_map($this->canonicalize(...), $value);
+            $value = array_map($this->canonicalize(...), $value);
+
+            // JSON lists keep their order; associative arrays (form data) are key-sorted.
+            if (! array_is_list($value)) {
+                ksort($value, SORT_STRING);
+            }
+
+            return $value;
         }
 
         if (is_object($value)) {
