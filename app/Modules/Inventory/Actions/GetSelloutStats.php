@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Inventory\Actions;
 
 use App\Modules\Inventory\Data\SelloutStat;
+use App\Shared\Support\Timestamps;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use stdClass;
@@ -28,7 +29,7 @@ class GetSelloutStats
              WHERE s.sold_out_at >= ?
              GROUP BY s.venue_id, weekday, hour
              ORDER BY s.venue_id, weekday, hour',
-            [$since->utc()->format('Y-m-d H:i:s.uP')],
+            [Timestamps::bind($since)],
         );
 
         return array_values(array_map(

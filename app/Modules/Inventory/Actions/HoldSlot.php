@@ -19,6 +19,7 @@ use App\Modules\Inventory\Support\SlotGate;
 use App\Modules\Inventory\Support\SlotRows;
 use App\Shared\Outbox\Outbox;
 use App\Shared\Outbox\OutboxTopic;
+use App\Shared\Support\Timestamps;
 use App\Shared\Support\Transactions;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
@@ -173,7 +174,7 @@ class HoldSlot
 
             $updated = DB::selectOne(
                 'UPDATE slots SET held_count = held_count + 1, updated_at = ? WHERE id = ? AND held_count + booked_count < capacity RETURNING *',
-                [SlotRows::ts($now), $input->slotId],
+                [Timestamps::bind($now), $input->slotId],
             );
 
             if ($updated === null) {
@@ -189,9 +190,9 @@ class HoldSlot
                 'party_size' => $input->partySize,
                 'status' => HoldStatus::Active->value,
                 'idempotency_key' => $input->idempotencyKey,
-                'expires_at' => SlotRows::ts($expiresAt),
-                'created_at' => SlotRows::ts($now),
-                'updated_at' => SlotRows::ts($now),
+                'expires_at' => Timestamps::bind($expiresAt),
+                'created_at' => Timestamps::bind($now),
+                'updated_at' => Timestamps::bind($now),
             ]);
 
             $this->outbox->record(OutboxTopic::SlotHeld, SlotRows::payload($row, $now));
@@ -212,7 +213,7 @@ class HoldSlot
             ->where('slot_id', $input->slotId)
             ->where('member_id', $input->memberId)
             ->where('status', HoldStatus::Active->value)
-            ->where('expires_at', '<=', SlotRows::ts(now()))
+            ->where('expires_at', '<=', Timestamps::bind(now()))
             ->exists();
     }
 

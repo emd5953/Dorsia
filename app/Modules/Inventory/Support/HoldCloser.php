@@ -7,6 +7,7 @@ namespace App\Modules\Inventory\Support;
 use App\Modules\Inventory\Enums\HoldStatus;
 use App\Shared\Outbox\Outbox;
 use App\Shared\Outbox\OutboxTopic;
+use App\Shared\Support\Timestamps;
 use Illuminate\Support\Facades\DB;
 use LogicException;
 
@@ -39,14 +40,14 @@ final class HoldCloser
 
             DB::table('holds')->where('id', $holdId)->update([
                 'status' => $status->value,
-                'closed_at' => SlotRows::ts($now),
+                'closed_at' => Timestamps::bind($now),
                 'close_reason' => $reason,
-                'updated_at' => SlotRows::ts($now),
+                'updated_at' => Timestamps::bind($now),
             ]);
 
             $slot = DB::selectOne(
                 'UPDATE slots SET held_count = held_count - 1, updated_at = ? WHERE id = ? AND held_count > 0 RETURNING *',
-                [SlotRows::ts($now), $hold->slot_id],
+                [Timestamps::bind($now), $hold->slot_id],
             );
 
             if ($slot === null) {

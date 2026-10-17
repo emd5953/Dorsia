@@ -8,6 +8,7 @@ use App\Modules\Inventory\Data\SlotData;
 use App\Modules\Inventory\Events\AvailabilitySearched;
 use App\Modules\Inventory\Exceptions\VenueNotFoundException;
 use App\Modules\Inventory\Models\Venue;
+use App\Shared\Support\Timestamps;
 use Carbon\CarbonImmutable;
 
 /**
@@ -29,8 +30,8 @@ final class SearchAvailability
 
         $slots = SlotRows::joined()
             ->where('slots.venue_id', $venueId)
-            ->where('slots.starts_at', '>=', SlotRows::ts($dayStart))
-            ->where('slots.starts_at', '<', SlotRows::ts($dayEnd))
+            ->where('slots.starts_at', '>=', Timestamps::bind($dayStart))
+            ->where('slots.starts_at', '<', Timestamps::bind($dayEnd))
             ->orderBy('slots.starts_at')
             ->orderBy('slots.id')
             ->get()

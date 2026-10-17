@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Inventory\Support;
 
 use App\Modules\Inventory\Actions\ExpireHold;
+use App\Shared\Support\Timestamps;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -22,7 +23,7 @@ final class ExpireOverdueHolds
     {
         $query = DB::table('holds')
             ->where('status', 'active')
-            ->where('expires_at', '<=', SlotRows::ts(now()))
+            ->where('expires_at', '<=', Timestamps::bind(now()))
             ->orderBy('expires_at')
             ->orderBy('id');
 

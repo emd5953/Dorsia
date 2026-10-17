@@ -6,6 +6,7 @@ namespace App\Modules\Inventory\Support;
 
 use App\Shared\Outbox\Outbox;
 use App\Shared\Outbox\OutboxTopic;
+use App\Shared\Support\Timestamps;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -26,8 +27,8 @@ final class NotifyExpiringHolds
         $ids = DB::table('holds')
             ->where('status', 'active')
             ->whereNull('expiring_notified_at')
-            ->where('expires_at', '>', SlotRows::ts($now))
-            ->where('expires_at', '<=', SlotRows::ts($horizon))
+            ->where('expires_at', '>', Timestamps::bind($now))
+            ->where('expires_at', '<=', Timestamps::bind($horizon))
             ->orderBy('expires_at')
             ->limit($limit)
             ->pluck('id');
@@ -41,7 +42,7 @@ final class NotifyExpiringHolds
                     "UPDATE holds SET expiring_notified_at = ?, updated_at = ?
                      WHERE id = ? AND status = 'active' AND expiring_notified_at IS NULL AND expires_at > ?
                      RETURNING *",
-                    [SlotRows::ts($now), SlotRows::ts($now), $id, SlotRows::ts($now)],
+                    [Timestamps::bind($now), Timestamps::bind($now), $id, Timestamps::bind($now)],
                 );
 
                 if ($hold === null) {

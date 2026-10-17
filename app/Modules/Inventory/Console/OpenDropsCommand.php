@@ -7,6 +7,7 @@ namespace App\Modules\Inventory\Console;
 use App\Modules\Inventory\Support\SlotRows;
 use App\Shared\Outbox\Outbox;
 use App\Shared\Outbox\OutboxTopic;
+use App\Shared\Support\Timestamps;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
@@ -20,7 +21,7 @@ final class OpenDropsCommand extends Command
     {
         $ids = DB::table('drops')
             ->whereNull('opened_at')
-            ->where('opens_at', '<=', SlotRows::ts(now()))
+            ->where('opens_at', '<=', Timestamps::bind(now()))
             ->orderBy('opens_at')
             ->orderBy('id')
             ->pluck('id');
@@ -34,7 +35,7 @@ final class OpenDropsCommand extends Command
                 // The conditional update is the once-only guard, even with two schedulers running.
                 $drop = DB::selectOne(
                     'UPDATE drops SET opened_at = ?, updated_at = ? WHERE id = ? AND opened_at IS NULL RETURNING *',
-                    [SlotRows::ts($now), SlotRows::ts($now), $id],
+                    [Timestamps::bind($now), Timestamps::bind($now), $id],
                 );
 
                 if ($drop === null) {

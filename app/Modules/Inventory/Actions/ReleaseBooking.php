@@ -10,6 +10,7 @@ use App\Modules\Inventory\Support\SlotGate;
 use App\Modules\Inventory\Support\SlotRows;
 use App\Shared\Outbox\Outbox;
 use App\Shared\Outbox\OutboxTopic;
+use App\Shared\Support\Timestamps;
 use App\Shared\Support\Transactions;
 use Illuminate\Support\Facades\DB;
 
@@ -31,7 +32,7 @@ class ReleaseBooking
 
         $updated = DB::selectOne(
             'UPDATE slots SET booked_count = booked_count - 1, updated_at = ? WHERE id = ? AND booked_count > 0 RETURNING *',
-            [SlotRows::ts($now), $slotId],
+            [Timestamps::bind($now), $slotId],
         );
 
         $joined = SlotRows::find($slotId) ?? throw new SlotNotFoundException;

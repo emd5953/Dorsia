@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Inventory\Models;
 
 use App\Modules\Inventory\Database\Factories\SlotFactory;
+use App\Shared\Support\Timestamps;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -30,7 +31,7 @@ final class Slot extends Model
 
     protected $guarded = [];
 
-    protected $dateFormat = 'Y-m-d H:i:s.uP';
+    protected $dateFormat = Timestamps::FORMAT;
 
     protected function casts(): array
     {

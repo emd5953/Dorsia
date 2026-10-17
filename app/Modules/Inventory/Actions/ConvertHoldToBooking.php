@@ -12,6 +12,7 @@ use App\Modules\Inventory\Exceptions\HoldNotFoundException;
 use App\Modules\Inventory\Support\SlotRows;
 use App\Shared\Outbox\Outbox;
 use App\Shared\Outbox\OutboxTopic;
+use App\Shared\Support\Timestamps;
 use App\Shared\Support\Transactions;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -58,16 +59,16 @@ class ConvertHoldToBooking
 
         DB::table('holds')->where('id', $holdId)->update([
             'status' => HoldStatus::Converted->value,
-            'closed_at' => SlotRows::ts($now),
+            'closed_at' => Timestamps::bind($now),
             'close_reason' => 'converted',
-            'updated_at' => SlotRows::ts($now),
+            'updated_at' => Timestamps::bind($now),
         ]);
 
         $updated = DB::selectOne(
             'UPDATE slots SET held_count = held_count - 1, booked_count = booked_count + 1, updated_at = ?,
                 sold_out_at = CASE WHEN sold_out_at IS NULL AND booked_count + 1 >= capacity THEN ?::timestamptz ELSE sold_out_at END
              WHERE id = ? AND held_count > 0 RETURNING *',
-            [SlotRows::ts($now), SlotRows::ts($now), $slotId],
+            [Timestamps::bind($now), Timestamps::bind($now), $slotId],
         );
 
         if ($updated === null) {
@@ -93,7 +94,7 @@ class ConvertHoldToBooking
             return;
         }
 
-        $marked = DB::table('drops')->where('id', $dropId)->whereNull('sold_out_at')->update(['sold_out_at' => SlotRows::ts($now), 'updated_at' => SlotRows::ts($now)]);
+        $marked = DB::table('drops')->where('id', $dropId)->whereNull('sold_out_at')->update(['sold_out_at' => Timestamps::bind($now), 'updated_at' => Timestamps::bind($now)]);
 
         if ($marked === 1) {
             $this->outbox->record(OutboxTopic::DropSoldOut, [

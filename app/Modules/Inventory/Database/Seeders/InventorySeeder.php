@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Inventory\Database\Seeders;
 
-use App\Modules\Inventory\Support\SlotRows;
+use App\Shared\Support\Timestamps;
 use Carbon\CarbonImmutable;
 use DateTimeZone;
 use Illuminate\Database\Seeder;
@@ -42,7 +42,7 @@ final class InventorySeeder extends Seeder
                 throw new InvalidArgumentException("Unknown timezone {$timezone}.");
             }
 
-            DB::table('cities')->insertOrIgnore(['slug' => $citySlug, 'name' => $cityName, 'country_code' => 'US', 'created_at' => SlotRows::ts($now), 'updated_at' => $now]);
+            DB::table('cities')->insertOrIgnore(['slug' => $citySlug, 'name' => $cityName, 'country_code' => 'US', 'created_at' => Timestamps::bind($now), 'updated_at' => Timestamps::bind($now)]);
             $cityId = (int) DB::table('cities')->where('slug', $citySlug)->value('id');
 
             foreach ($venues as [$venueSlug, $venueName, $baseCents]) {
@@ -54,8 +54,8 @@ final class InventorySeeder extends Seeder
                     'status' => 'active',
                     'base_per_person_cents' => $baseCents,
                     'currency' => 'USD',
-                    'created_at' => SlotRows::ts($now),
-                    'updated_at' => SlotRows::ts($now),
+                    'created_at' => Timestamps::bind($now),
+                    'updated_at' => Timestamps::bind($now),
                 ]);
                 $venueId = (int) DB::table('venues')->where('slug', $venueSlug)->value('id');
 
@@ -107,9 +107,9 @@ final class InventorySeeder extends Seeder
 
         $dropId = DB::table('drops')->insertGetId([
             'venue_id' => $venueId,
-            'opens_at' => SlotRows::ts($opensAt),
-            'created_at' => SlotRows::ts($now),
-            'updated_at' => SlotRows::ts($now),
+            'opens_at' => Timestamps::bind($opensAt),
+            'created_at' => Timestamps::bind($now),
+            'updated_at' => Timestamps::bind($now),
         ]);
 
         DB::table('slots')->insertOrIgnore($this->slotRows($venueId, (int) $dropId, $startsAt, $opensAt, $now));
@@ -126,15 +126,15 @@ final class InventorySeeder extends Seeder
             $rows[] = [
                 'venue_id' => $venueId,
                 'drop_id' => $dropId,
-                'starts_at' => SlotRows::ts($startsAt),
+                'starts_at' => Timestamps::bind($startsAt),
                 'capacity' => $capacity,
                 'held_count' => 0,
                 'booked_count' => 0,
                 'min_party_size' => $min,
                 'max_party_size' => $max,
-                'released_at' => SlotRows::ts($releasedAt),
-                'created_at' => SlotRows::ts($now),
-                'updated_at' => SlotRows::ts($now),
+                'released_at' => Timestamps::bind($releasedAt),
+                'created_at' => Timestamps::bind($now),
+                'updated_at' => Timestamps::bind($now),
             ];
         }
 

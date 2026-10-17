@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Inventory\Models;
 
 use App\Modules\Inventory\Database\Factories\CityFactory;
+use App\Shared\Support\Timestamps;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -22,7 +23,7 @@ final class City extends Model
 
     protected $guarded = [];
 
-    protected $dateFormat = 'Y-m-d H:i:s.uP';
+    protected $dateFormat = Timestamps::FORMAT;
 
     /**
      * @return CityFactory

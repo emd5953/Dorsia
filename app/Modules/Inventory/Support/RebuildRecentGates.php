@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Inventory\Support;
 
+use App\Shared\Support\Timestamps;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -21,8 +22,8 @@ final class RebuildRecentGates
         $now = now();
 
         $ids = DB::table('slots')
-            ->where('starts_at', '>', SlotRows::ts($now))
-            ->where('updated_at', '>=', SlotRows::ts($now->subMinutes((int) config('inventory.gate.rebuild_recent_minutes'))))
+            ->where('starts_at', '>', Timestamps::bind($now))
+            ->where('updated_at', '>=', Timestamps::bind($now->subMinutes((int) config('inventory.gate.rebuild_recent_minutes'))))
             ->pluck('id');
 
         foreach ($ids as $id) {
