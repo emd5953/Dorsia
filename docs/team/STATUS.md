@@ -24,8 +24,8 @@ Orchestrator state for the steps 1–8 build. Updated at every milestone so anot
 
 ## Next steps
 
-1. Inventory eval r2: PASS → merge `feat/inventory-holds`; FAIL → Codex rework round 3.
-2. After 02 merges: start ticket 06 on Codex in a new worktree off `build/v1` (`bin/worktree-env 06`). Ticket 06 also carries: `HoldView::$quote` filled with `QuoteData`, `HoldReleaseReason::ConfirmFailed`, null `CancellationRefund::$transactionId` handling, release-hold-on-confirm-failure (C§6.2 step 6).
+1. Inventory eval r2: PASS → merge `feat/inventory-holds`; FAIL → Claude engineer rework round 3.
+2. After 02 merges: start ticket 06 on a Claude engineer in a new worktree off `build/v1` (`bin/worktree-env 06`). Ticket 06 also carries: `HoldView::$quote` filled with `QuoteData`, `HoldReleaseReason::ConfirmFailed`, null `CancellationRefund::$transactionId` handling, release-hold-on-confirm-failure (C§6.2 step 6).
 3. Realtime-07 done → eval → merge; then run its k6 smoke test once 02 is merged.
 4. After 06 and 07 merge: ticket 08 (k6 drop test).
 5. Final product eval (process.md), then a PR `build/v1` → `main`. The PR waits for the user.
