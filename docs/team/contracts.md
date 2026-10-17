@@ -913,10 +913,12 @@ Release is a Lua script that `INCR`s only if the key exists. Rebuild takes `Cach
 
 Steps:
 
+0. Take the per-key lock `hold_key:{sha256(idempotency_key)}` (`Cache::store('redis')->lock`, TTL `inventory.hold_key_lock.seconds` 10, blocking up to `inventory.hold_key_lock.wait_seconds` 5; on timeout continue unlocked, the unique key still decides) and hold it until `HoldSlot` returns. Then replay: an existing hold with this `idempotency_key` is returned at once. Calls sharing a key therefore never take gate units of their own.
 1. Load slot + venue by id (one query). Missing → `SlotNotFoundException`.
 2. Validate, in order: venue `active` and `starts_at > now()` else `SlotUnavailableException`; `released_at <= now()` else `DropNotOpenException` if `drop_id` set, otherwise `SlotUnavailableException`; `min_party_size <= party_size <= max_party_size` else `PartySizeNotAllowedException`.
+2b. One query for the member's own `active` holds on the slot: any unexpired → `ActiveHoldExistsException` (no gate unit taken); any overdue → expire them now (normal expiry, gate unit released), so the member's parallel requests cannot drain units others need.
 3. Gate acquire. `-1` → **refresh check**: if `SET slot_gate:{id}:refresh 1 NX EX <inventory.gate.refresh_seconds>` (5) succeeds, run a gate rebuild (below; it expires the slot's overdue holds first) and acquire once more; if the guard is already set, or the second acquire is still `-1` → `SoldOutException` with no further DB write. So a wrong-low gate (overdue unswept holds, a crash after DECR, any drift) heals within 5 s of the next request, and a sold-out stampede costs at most one rebuild per slot per 5 s. `-2` → rebuild; requests that lose the rebuild lock poll for the winner's key for at most `inventory.gate.rebuild_wait_ms` (200), then acquire once more; if still `-2`, continue without a gate unit (Postgres decides).
-   - A unique violation on `holds_one_active_per_member_slot` caused by the member's **own overdue** hold expires that hold and retries step 4 once before raising `ActiveHoldExistsException`.
+   - A unique violation on `holds_one_active_per_member_slot` re-runs step 2b (expiring any own overdue hold; a no-op if a sibling request already did) and retries step 4 once; a second violation raises `ActiveHoldExistsException`.
 4. `DB::transaction`:
    - `UPDATE slots SET held_count = held_count + 1, updated_at = :now WHERE id = :id AND held_count + booked_count < capacity RETURNING *`.
    - 0 rows → leave the transaction, run internal `ExpireOverdueHolds(slotId)` (expires active holds with `expires_at <= now()` on that slot), retry the transaction once. Still 0 rows → do not INCR; rebuild the gate only if the step-3 refresh guard can be taken (same key, same 5 s), and throw `SoldOutException`.
@@ -927,7 +929,7 @@ Postgres is the final word: a counter that is too high only lets extra requests 
 
 **Hold expiry.** `now() >= expires_at` means expired. Enforced lazily by `GetHold` and `ConvertHoldToBooking`, and by the `inventory:expire-holds` sweeper (C§13). Expiry and release restore `held_count`, write `slot.released` and release the gate unit after commit, in that order.
 
-**Gate keys are exactly** `slot_gate:{id}` (counter), `slot_gate:{id}:lock` (rebuild lock) and `slot_gate:{id}:refresh` (5 s guard). No in-flight/pending counters and no generation/epoch checks: a rebuild sets `capacity - booked_count - held_count` from Postgres even while requests are in flight (that can only make the gate too high, which is safe), and every after-commit release always runs the release script. Over-high drift is corrected by the Postgres-rejection path in step 4 (rebuild under the same guard). `rebuild_wait_ms` is required: losers of the rebuild lock poll for the counter key with a bounded wait (≤ 200 ms total) and never block on the lock.
+**Gate keys are exactly** `slot_gate:{id}` (counter), `slot_gate:{id}:lock` (rebuild lock) and `slot_gate:{id}:refresh` (5 s guard); the only other Inventory Redis key is the step-0 `hold_key:*` lock. No in-flight/pending counters and no generation/epoch checks: a rebuild sets `capacity - booked_count - held_count` from Postgres even while requests are in flight (that can only make the gate too high, which is safe), and every after-commit release always runs the release script. Over-high drift is corrected by the Postgres-rejection path in step 4 (rebuild under the same guard). `rebuild_wait_ms` is required: losers of the rebuild lock poll for the counter key with a bounded wait (≤ 200 ms total) and never block on the lock.
 
 **Counter rebuild sweep.** The same every-minute sweeper also rebuilds gates for slots with `starts_at > now()` and `updated_at >= now() - 2 minutes` (tidies counters after commit-then-crash). Correctness of the sold-out signal does not depend on it: the step-3 refresh check heals any wrong-low gate within 5 s of a request, and an idle slot's gate is irrelevant (availability reads Postgres).
 
@@ -1174,6 +1176,8 @@ Module config files are `app/Modules/<Name>/config.php`, merged under the lowerc
 | `inventory.gate.rebuild_lock_seconds` | 5 | — | Inventory |
 | `inventory.gate.rebuild_recent_minutes` | 2 | — | Inventory |
 | `inventory.gate.rebuild_wait_ms` | 200 | — | Inventory |
+| `inventory.hold_key_lock.seconds` | 10 | — | Inventory |
+| `inventory.hold_key_lock.wait_seconds` | 5 | — | Inventory |
 | `inventory.gate.refresh_seconds` | 5 | — | Inventory |
 | `inventory.sweep_batch` | 500 | — | Inventory |
 | `reservations.cancel_window_hours` | 8 | `CANCEL_WINDOW_HOURS` | Reservations |

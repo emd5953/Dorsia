@@ -69,11 +69,13 @@ Pricing quotes (the hold's `quote` is `null` until ticket 06), confirm, cancel, 
 - Unit: `SlotGate` Lua semantics against real Redis (acquire to zero, sold-out leaves value at 0 not −1, release on missing key does nothing), `SlotData::available()`.
 - Feature: one test per acceptance bullet above (`tests/Modules/Inventory/Feature/*`, `tests/Modules/Reservations/Feature/Hold*`).
 - Concurrency (`tests/Modules/Reservations/Concurrency/HoldRaceTest.php`, `tests/Modules/Inventory/Concurrency/*`), each with ≥ 20 parallel processes:
-  - 40 members race a slot with `capacity = 5` → exactly 5 × 201, 35 × 409 `sold_out`, zero 5xx; DB `held_count = 5`, 5 active holds, gate = 0.
-  - Same race with the gate key deleted just before firing → still exactly 5 holds, gate rebuilt to 0.
+  - 40 members race a slot with `capacity = 5` → exactly 5 × 201, 35 × 409 `sold_out`, zero 5xx; DB `held_count = 5`, 5 active holds, gate never below Postgres truth (C§6.1 allows too high: a refresh SET can overwrite in-flight decrements).
+  - Same race with the gate key deleted just before firing → still exactly 5 holds, gate key rebuilt and never below Postgres truth.
   - 20 parallel identical requests from one member with one key → exactly 1 hold; responses are the 201 or 409 `idempotency_in_progress`; zero 5xx.
-  - 20 parallel requests from one member with *different* keys on one slot → exactly 1 hold, the rest 409 `active_hold_exists` or `sold_out`, gate consistent with DB afterwards.
-  - Sweeper expiring holds while 20 new members race the freed tables → `held_count + booked_count <= capacity` always, final gate equals DB truth.
+  - 12 parallel **action-level** `HoldSlot` calls sharing one key on `capacity = 4` → all return the same hold, no `sold_out`, gate = 3 (C§6.1 step 0).
+  - A member with an overdue unswept hold firing 20 parallel requests → exactly 1 new hold, the overdue one expired, gate never below truth, another member can hold the free table at once (C§6.1 step 2b).
+  - 20 parallel requests from one member with *different* keys on one slot → exactly 1 hold, the rest 409 `active_hold_exists` or `sold_out`, gate never below Postgres truth afterwards.
+  - Sweeper expiring holds while 20 new members race the freed tables → `held_count + booked_count <= capacity` always, final gate never below Postgres truth.
 - `tests/Arch/Contracts/InventoryContractTest.php`.
 
 ## Eval agent will check
