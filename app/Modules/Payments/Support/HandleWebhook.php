@@ -58,19 +58,19 @@ final class HandleWebhook
                 return false;
             }
 
-            $this->apply($payment, $event);
-
-            PaymentWebhookEvent::query()
-                ->where('provider', self::PROVIDER)
-                ->where('event_id', $event['id'])
-                ->update(['processed_at' => now()->utc()->format('Y-m-d H:i:s.uP')]);
+            if ($this->apply($payment, $event)) {
+                PaymentWebhookEvent::query()
+                    ->where('provider', self::PROVIDER)
+                    ->where('event_id', $event['id'])
+                    ->update(['processed_at' => now()->utc()->format('Y-m-d H:i:s.uP')]);
+            }
 
             return false;
         });
     }
 
     /**
-     * @return array{id: string, type: string, provider_ref: string|null, payment_id: int|null, decline_code: string|null, payload: array<mixed>}
+     * @return array{id: string, type: string, provider_ref: string|null, payment_id: int|null, decline_code: string|null, amount_cents: int|null, currency: string|null, payload: array<mixed>}
      */
     private function validated(string $rawBody): array
     {
@@ -85,6 +85,8 @@ final class HandleWebhook
             'type' => ['required', 'string', 'max:64'],
             'data' => ['required', 'array'],
             'data.provider_ref' => ['nullable', 'string', 'max:255'],
+            'data.amount_cents' => ['nullable', 'integer'],
+            'data.currency' => ['nullable', 'string', 'size:3'],
             'data.decline_code' => ['nullable', 'string', 'max:64'],
             'data.metadata' => ['nullable', 'array'],
             'data.metadata.payment_id' => ['nullable', 'integer'],
@@ -97,6 +99,8 @@ final class HandleWebhook
             'provider_ref' => $data['data']['provider_ref'] ?? null,
             'payment_id' => isset($data['data']['metadata']['payment_id']) ? (int) $data['data']['metadata']['payment_id'] : null,
             'decline_code' => $data['data']['decline_code'] ?? null,
+            'amount_cents' => isset($data['data']['amount_cents']) ? (int) $data['data']['amount_cents'] : null,
+            'currency' => isset($data['data']['currency']) ? (string) $data['data']['currency'] : null,
             'payload' => $payload,
         ];
     }
@@ -115,16 +119,33 @@ final class HandleWebhook
     }
 
     /**
-     * @param  array{id: string, type: string, provider_ref: string|null, payment_id: int|null, decline_code: string|null, payload: array<mixed>}  $event
+     * @param  array{id: string, type: string, provider_ref: string|null, payment_id: int|null, decline_code: string|null, amount_cents: int|null, currency: string|null, payload: array<mixed>}  $event
      */
-    private function apply(Payment $payment, array $event): void
+    private function apply(Payment $payment, array $event): bool
     {
         $ref = $event['provider_ref'];
+
+        if ($event['amount_cents'] !== $payment->amount_cents || $event['currency'] !== $payment->currency) {
+            Log::critical('Webhook amount or currency differs from the payment.', [
+                'payment_id' => $payment->id,
+                'event_id' => $event['id'],
+                'amount_cents' => $event['amount_cents'],
+                'currency' => $event['currency'],
+            ]);
+
+            return false;
+        }
+
+        if (in_array($event['type'], ['payment.authorized', 'payment.captured', 'payment.refunded'], true) && $ref === null) {
+            Log::warning('Webhook requiring a provider_ref was ignored.', ['payment_id' => $payment->id, 'event_id' => $event['id'], 'type' => $event['type']]);
+
+            return true;
+        }
 
         if ($ref !== null && $payment->provider_ref !== null && $payment->provider_ref !== $ref) {
             Log::warning('Webhook provider_ref differs from the payment\'s charge; ignored.', ['payment_id' => $payment->id, 'event_id' => $event['id']]);
 
-            return;
+            return true;
         }
 
         $status = $payment->status;
@@ -132,6 +153,8 @@ final class HandleWebhook
             ['payment.authorized', PaymentStatus::Pending] => ['status' => PaymentStatus::Authorized->value, 'provider_ref' => $ref],
             ['payment.authorized', PaymentStatus::TimedOut] => $ref === null ? [] : ['provider_ref' => $ref],
             ['payment.captured', PaymentStatus::Authorized] => ['status' => PaymentStatus::Captured->value],
+            ['payment.captured', PaymentStatus::Pending] => ['status' => PaymentStatus::Captured->value, 'provider_ref' => $ref],
+            ['payment.captured', PaymentStatus::TimedOut] => ['provider_ref' => $ref],
             ['payment.refunded', PaymentStatus::Authorized],
             ['payment.refunded', PaymentStatus::Captured],
             ['payment.refunded', PaymentStatus::TimedOut] => ['status' => PaymentStatus::Refunded->value],
@@ -143,9 +166,12 @@ final class HandleWebhook
             $payment->update($values);
         }
 
-        if ($event['type'] === 'payment.authorized' && $status === PaymentStatus::TimedOut && $payment->provider_ref !== null) {
+        if (in_array($event['type'], ['payment.authorized', 'payment.captured'], true)
+            && $status === PaymentStatus::TimedOut && $payment->provider_ref !== null) {
             // Orphaned authorization: the caller was told "timeout", so the money must be released.
             RefundPayment::dispatch($payment->id)->afterCommit();
         }
+
+        return true;
     }
 }

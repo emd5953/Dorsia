@@ -362,10 +362,11 @@ final class FakeGateway implements PaymentGateway
     /** One webhook per successful call when emission is on (or the charge asked for duplicates), twice when duplicating. */
     private function emit(string $type, string $ref): void
     {
-        $duplicate = ($this->duplicateWebhooks ?? (bool) config('payments.fake.duplicate_webhooks'))
-            || (bool) $this->connection()->sismember(self::DUPLICATE, $ref);
+        $emit = $this->emitWebhooks ?? (bool) config('payments.fake.emit_webhooks');
+        $chargeDuplicate = (bool) $this->connection()->sismember(self::DUPLICATE, $ref);
+        $duplicate = $chargeDuplicate || ($emit && ($this->duplicateWebhooks ?? (bool) config('payments.fake.duplicate_webhooks')));
 
-        if (! ($this->emitWebhooks ?? (bool) config('payments.fake.emit_webhooks')) && ! $duplicate) {
+        if (! $emit && ! $chargeDuplicate) {
             return;
         }
 

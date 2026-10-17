@@ -114,6 +114,53 @@ it('applies the C11 transition table', function (string $type, PaymentStatus $fr
     'failed from pending' => ['payment.failed', PaymentStatus::Pending, PaymentStatus::Failed],
 ]);
 
+it('requires provider_ref on authorized, captured and refunded events', function (string $type): void {
+    Log::spy();
+    $payment = Payment::factory()->pending()->create();
+    $event = FakeGateway::webhookPayload($type, 'fake_ch_MISSING', Money::of(55000, 'USD'), $payment->id);
+    $event['data']['provider_ref'] = null;
+
+    postWebhook($this, $event)->assertOk()->assertJsonPath('data.duplicate', false);
+
+    expect($payment->fresh()?->status)->toBe(PaymentStatus::Pending)
+        ->and(PaymentWebhookEvent::query()->sole()->processed_at)->not->toBeNull();
+    Log::shouldHaveReceived('warning')->once();
+})->with(['payment.authorized', 'payment.captured', 'payment.refunded']);
+
+it('records amount or currency mismatches without applying the event', function (array $override): void {
+    Log::spy();
+    $payment = Payment::factory()->pending()->create();
+    $event = FakeGateway::webhookPayload('payment.authorized', 'fake_ch_MISMATCH', Money::of(55000, 'USD'), $payment->id);
+    $event['data'] = array_replace($event['data'], $override);
+
+    postWebhook($this, $event)->assertOk()->assertExactJson(['data' => ['duplicate' => false]]);
+
+    $stored = PaymentWebhookEvent::query()->sole();
+    expect($stored->processed_at)->toBeNull()
+        ->and($payment->fresh()?->status)->toBe(PaymentStatus::Pending)
+        ->and($payment->fresh()?->provider_ref)->toBeNull();
+    Log::shouldHaveReceived('critical')->once();
+})->with([
+    'amount' => [['amount_cents' => 54999]],
+    'currency' => [['currency' => 'EUR']],
+]);
+
+it('applies captured events that arrive before authorization and refunds timed out captures', function (): void {
+    Queue::fake();
+    $pending = Payment::factory()->pending()->create();
+    $pendingEvent = FakeGateway::webhookPayload('payment.captured', 'fake_ch_EARLY', Money::of(55000, 'USD'), $pending->id);
+    postWebhook($this, $pendingEvent)->assertOk();
+    expect($pending->fresh()?->status)->toBe(PaymentStatus::Captured)
+        ->and($pending->fresh()?->provider_ref)->toBe('fake_ch_EARLY');
+
+    $timedOut = Payment::factory()->create(['status' => PaymentStatus::TimedOut, 'provider_ref' => null]);
+    $lateEvent = FakeGateway::webhookPayload('payment.captured', 'fake_ch_LATE', Money::of(55000, 'USD'), $timedOut->id);
+    postWebhook($this, $lateEvent)->assertOk();
+    expect($timedOut->fresh()?->status)->toBe(PaymentStatus::TimedOut)
+        ->and($timedOut->fresh()?->provider_ref)->toBe('fake_ch_LATE');
+    Queue::assertPushed(RefundPayment::class, fn ($job) => $job->paymentId === $timedOut->id);
+});
+
 it('stores the decline code carried by a failed event', function (): void {
     $payment = Payment::factory()->pending()->create();
     $event = FakeGateway::webhookPayload('payment.failed', 'fake_ch_F', Money::of(55000, 'USD'), $payment->id);
@@ -125,6 +172,7 @@ it('stores the decline code carried by a failed event', function (): void {
 });
 
 it('ignores every transition the table does not list, including backwards ones', function (string $type, PaymentStatus $from): void {
+    Queue::fake();
     $payment = Payment::factory()->create(['status' => $from, 'provider_ref' => 'fake_ch_NOOP']);
     $event = FakeGateway::webhookPayload($type, 'fake_ch_NOOP', Money::of(55000, 'USD'), $payment->id);
 
@@ -135,7 +183,7 @@ it('ignores every transition the table does not list, including backwards ones',
 })->with(function (): Generator {
     $allowed = [
         'payment.authorized' => [PaymentStatus::Pending, PaymentStatus::TimedOut],
-        'payment.captured' => [PaymentStatus::Authorized],
+        'payment.captured' => [PaymentStatus::Authorized, PaymentStatus::Pending, PaymentStatus::TimedOut],
         'payment.refunded' => [PaymentStatus::Authorized, PaymentStatus::Captured, PaymentStatus::TimedOut],
         'payment.failed' => [PaymentStatus::Pending],
     ];
@@ -151,20 +199,15 @@ it('ignores every transition the table does not list, including backwards ones',
     yield 'unknown type on authorized' => ['payment.disputed', PaymentStatus::Authorized];
 });
 
-it('handles out-of-order events: captured before authorized is a no-op and a late authorized then lands', function (): void {
+it('handles out-of-order captured events and never moves backward on a later authorized event', function (): void {
+    Queue::fake();
     $payment = Payment::factory()->pending()->create();
 
     postWebhook($this, FakeGateway::webhookPayload('payment.captured', 'fake_ch_OOO', Money::of(55000, 'USD'), $payment->id))->assertOk();
-    expect($payment->fresh()?->status)->toBe(PaymentStatus::Pending);
-
-    postWebhook($this, FakeGateway::webhookPayload('payment.authorized', 'fake_ch_OOO', Money::of(55000, 'USD'), $payment->id))->assertOk();
-    expect($payment->fresh()?->status)->toBe(PaymentStatus::Authorized)
+    expect($payment->fresh()?->status)->toBe(PaymentStatus::Captured)
         ->and($payment->fresh()?->provider_ref)->toBe('fake_ch_OOO');
 
     postWebhook($this, FakeGateway::webhookPayload('payment.authorized', 'fake_ch_OOO', Money::of(55000, 'USD'), $payment->id))->assertOk();
-    postWebhook($this, FakeGateway::webhookPayload('payment.captured', 'fake_ch_OOO', Money::of(55000, 'USD'), $payment->id))->assertOk();
-    postWebhook($this, FakeGateway::webhookPayload('payment.authorized', 'fake_ch_OOO', Money::of(55000, 'USD'), $payment->id))->assertOk();
-
     expect($payment->fresh()?->status)->toBe(PaymentStatus::Captured);
 });
 

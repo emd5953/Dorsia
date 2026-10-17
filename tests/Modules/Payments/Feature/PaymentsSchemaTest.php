@@ -31,6 +31,11 @@ function insertPaymentRow(array $overrides = []): void
     ]);
 }
 
+it('stores payment amount_cents as bigint', function (): void {
+    $column = DB::selectOne("SELECT data_type FROM information_schema.columns WHERE table_name = 'payments' AND column_name = 'amount_cents'");
+    expect($column?->data_type)->toBe('bigint');
+});
+
 it('rejects a duplicate provider_ref in raw SQL but allows many nulls', function (): void {
     insertPaymentRow(['provider_ref' => 'fake_ch_DUP']);
 

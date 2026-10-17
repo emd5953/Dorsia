@@ -14,11 +14,15 @@ use App\Modules\Payments\Exceptions\PaymentDeclinedException;
 use App\Modules\Payments\Exceptions\PaymentInProgressException;
 use App\Modules\Payments\Exceptions\PaymentTimeoutException;
 use App\Modules\Payments\Models\Payment;
+use App\Modules\Payments\Support\FakeGateway;
 use App\Shared\Members\Member;
 use App\Shared\Money\Money;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
+use RuntimeException;
+use Tests\TestCase;
 
 require_once __DIR__.'/../Support/helpers.php';
 
@@ -253,6 +257,67 @@ it('releases the money when a webhook confirmed the charge before the timeout su
 
     expect($row->status)->toBe(PaymentStatus::Refunded)
         ->and(fakeGateway()->charges()[0]['status'])->toBe('refunded');
+});
+
+it('marks arbitrary gateway throwables timed_out and logs the original error', function (): void {
+    Log::spy();
+    $gateway = Mockery::mock(PaymentGateway::class);
+    $error = new RuntimeException('provider socket broke');
+    $gateway->shouldReceive('authorize')->once()->andThrow($error);
+    app()->instance(PaymentGateway::class, $gateway);
+
+    expect(fn () => app(AuthorizePayment::class)->handle(authorizeInput(holdId: 909)))
+        ->toThrow(PaymentTimeoutException::class);
+
+    expect(Payment::query()->sole()->status)->toBe(PaymentStatus::TimedOut);
+    Log::shouldHaveReceived('error')->once()->withArgs(fn (string $message, array $context): bool => $message === 'Payment authorization outcome is unknown.' && $context['error'] === $error
+    );
+});
+
+it('treats an authorized gateway result without a provider ref as timed_out', function (): void {
+    $gateway = Mockery::mock(PaymentGateway::class);
+    $gateway->shouldReceive('authorize')->once()->andReturn(new GatewayResult(GatewayStatus::Authorized, null));
+    app()->instance(PaymentGateway::class, $gateway);
+
+    expect(fn () => app(AuthorizePayment::class)->handle(authorizeInput(holdId: 910)))
+        ->toThrow(PaymentTimeoutException::class);
+    expect(Payment::query()->sole()->status)->toBe(PaymentStatus::TimedOut);
+});
+
+it('does not report authorization success if a webhook changes pending to failed during the gateway call', function (): void {
+    $member = Member::factory()->create();
+    $gateway = new class($this) implements PaymentGateway
+    {
+        public function __construct(private readonly TestCase $test) {}
+
+        public function authorize(AuthorizeRequest $request): GatewayResult
+        {
+            $payment = Payment::query()->findOrFail((int) $request->metadata['payment_id']);
+            postWebhook($this->test, FakeGateway::webhookPayload('payment.failed', 'fake_ch_race', $request->amount, $payment->id));
+
+            return new GatewayResult(GatewayStatus::Authorized, 'fake_ch_race');
+        }
+
+        public function capture(string $providerRef, Money $amount, string $idempotencyKey): GatewayResult
+        {
+            return new GatewayResult(GatewayStatus::Captured, $providerRef);
+        }
+
+        public function refund(string $providerRef, Money $amount, string $idempotencyKey): GatewayResult
+        {
+            return new GatewayResult(GatewayStatus::Refunded, $providerRef);
+        }
+
+        public function payout(string $destination, Money $amount, string $idempotencyKey): GatewayResult
+        {
+            return new GatewayResult(GatewayStatus::PaidOut, 'po');
+        }
+    };
+    app()->instance(PaymentGateway::class, $gateway);
+
+    expect(fn () => app(AuthorizePayment::class)->handle(authorizeInput($member, 911)))
+        ->toThrow(PaymentConflictException::class)
+        ->and(Payment::query()->sole()->status)->toBe(PaymentStatus::Failed);
 });
 
 it('keeps VoidPayment usable straight after authorize', function (): void {

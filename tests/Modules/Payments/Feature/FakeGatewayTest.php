@@ -2,11 +2,13 @@
 
 declare(strict_types=1);
 
+use App\Modules\Payments\Actions\AuthorizePayment;
 use App\Modules\Payments\Contracts\PaymentGateway;
 use App\Modules\Payments\Data\AuthorizeRequest;
 use App\Modules\Payments\Enums\GatewayStatus;
 use App\Modules\Payments\Exceptions\GatewayTimeoutException;
 use App\Shared\Money\Money;
+use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Redis;
 
@@ -75,6 +77,23 @@ it('is idempotent on the key: same ref, one charge, and a retry after a timeout 
     // The recorded charge answers the retry instead of timing out again or double charging.
     expect($retry->status)->toBe(GatewayStatus::Authorized)
         ->and(fakeGateway()->charges())->toHaveCount(2);
+});
+
+it('emits an authorization only once when a repeated key finds another call created the charge', function (): void {
+    $sent = [];
+    Http::fake(function (Request $request) use (&$sent) {
+        $sent[] = $request;
+
+        return Http::response(['data' => ['duplicate' => false]]);
+    });
+    fakeGateway()->emitWebhooks();
+
+    $first = fakeGateway()->authorize(gatewayRequest('tok_ok', 'emit-once'));
+    $second = fakeGateway()->authorize(gatewayRequest('tok_ok', 'emit-once'));
+
+    expect($second->providerRef)->toBe($first->providerRef)
+        ->and($sent)->toHaveCount(1)
+        ->and(fakeGateway()->charges())->toHaveCount(1);
 });
 
 it('assertChargedOnce fails for zero and for several charges', function (): void {
@@ -215,4 +234,15 @@ it('keeps provider state in Redis under the C11 keys', function (): void {
 
     expect(Redis::connection()->get('fakegw:idem:redis-key'))->toBe($ref)
         ->and(Redis::connection()->hexists('fakegw:charges', $ref))->toBeTruthy();
+});
+
+it('global duplicate_webhooks doubles deliveries only when emission is enabled', function (): void {
+    Http::fake();
+    config(['payments.fake.duplicate_webhooks' => true, 'payments.fake.emit_webhooks' => false]);
+    $data = app(AuthorizePayment::class)->handle(authorizeInput(holdId: 990));
+    expect(Http::recorded())->toHaveCount(0);
+
+    config(['payments.fake.emit_webhooks' => true]);
+    app(AuthorizePayment::class)->handle(authorizeInput(holdId: 991));
+    expect(Http::recorded())->toHaveCount(2);
 });

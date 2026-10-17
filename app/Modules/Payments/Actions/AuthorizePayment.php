@@ -10,15 +10,16 @@ use App\Modules\Payments\Data\AuthorizeRequest;
 use App\Modules\Payments\Data\PaymentData;
 use App\Modules\Payments\Enums\GatewayStatus;
 use App\Modules\Payments\Enums\PaymentStatus;
-use App\Modules\Payments\Exceptions\GatewayTimeoutException;
 use App\Modules\Payments\Exceptions\PaymentConflictException;
 use App\Modules\Payments\Exceptions\PaymentDeclinedException;
 use App\Modules\Payments\Exceptions\PaymentInProgressException;
 use App\Modules\Payments\Exceptions\PaymentTimeoutException;
 use App\Modules\Payments\Models\Payment;
 use App\Shared\Support\Transactions;
+use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 use LogicException;
+use Throwable;
 
 class AuthorizePayment
 {
@@ -89,7 +90,9 @@ class AuthorizePayment
                 $payment->idempotency_key,
                 ['payment_id' => $payment->id],
             ));
-        } catch (GatewayTimeoutException) {
+        } catch (Throwable $error) {
+            Log::error('Payment authorization outcome is unknown.', ['payment_id' => $payment->id, 'error' => $error]);
+
             if ($this->moveFromPending($payment->id, ['status' => PaymentStatus::TimedOut->value]) === 0) {
                 // A webhook already confirmed the charge; the caller is told "timeout", so release the money.
                 (new VoidPayment($this->gateway))->handle($payment->id);
@@ -98,7 +101,13 @@ class AuthorizePayment
             throw new PaymentTimeoutException;
         }
 
-        if ($result->status !== GatewayStatus::Authorized || $result->providerRef === null) {
+        if ($result->status === GatewayStatus::Authorized && $result->providerRef === null) {
+            $this->moveFromPending($payment->id, ['status' => PaymentStatus::TimedOut->value]);
+
+            throw new PaymentTimeoutException;
+        }
+
+        if ($result->status !== GatewayStatus::Authorized) {
             $code = $result->declineCode ?? 'card_declined';
             $this->moveFromPending($payment->id, ['status' => PaymentStatus::Failed->value, 'decline_code' => $code]);
 
