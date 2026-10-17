@@ -90,7 +90,7 @@ it('has the DTOs of C§5.3 with exact constructors', function (): void {
     expectDto(SpendPlan::class, ['coupon' => 'App\Shared\Money\Money', 'credit' => 'App\Shared\Money\Money', 'card' => 'App\Shared\Money\Money']);
     expectDto(BookingPaymentInput::class, ['memberId' => 'int', 'venueId' => 'int', 'holdId' => 'int', 'reservationId' => 'int', 'plan' => SpendPlan::class]);
     expectDto(CancellationRefundInput::class, ['memberId' => 'int', 'venueId' => 'int', 'reservationId' => 'int', 'amount' => 'App\Shared\Money\Money', 'late' => 'bool']);
-    expectDto(CancellationRefund::class, ['transactionId' => 'int', 'memberCredit' => 'App\Shared\Money\Money', 'platformShare' => 'App\Shared\Money\Money', 'venueRetained' => 'App\Shared\Money\Money']);
+    expectDto(CancellationRefund::class, ['transactionId' => '?int', 'memberCredit' => 'App\Shared\Money\Money', 'platformShare' => 'App\Shared\Money\Money', 'venueRetained' => 'App\Shared\Money\Money']);
     expectDto(LedgerEntryData::class, ['accountId' => 'int', 'ownerType' => AccountOwnerType::class, 'ownerId' => 'int', 'kind' => AccountKind::class, 'amountCents' => 'int']);
     expectDto(LedgerTransactionData::class, ['id' => 'int', 'type' => LedgerTransactionType::class, 'idempotencyKey' => 'string', 'currency' => 'App\Shared\Money\Currency', 'entries' => 'array', 'createdAt' => 'Carbon\CarbonImmutable']);
     expectDto(WalletBalance::class, ['memberId' => 'int', 'credit' => 'App\Shared\Money\Money', 'coupon' => 'App\Shared\Money\Money']);

@@ -47,6 +47,15 @@ class PostCancellationRefund
             $lines[] = PostingLine::platform(-$split->platform->cents);
         }
 
+        if ($split->member->isZero() && $split->platform->isZero()) {
+            return new CancellationRefund(
+                null,
+                Money::zero($amount->currency),
+                Money::zero($amount->currency),
+                $amount,
+            );
+        }
+
         $posted = $this->postTransaction->post(
             $input->late ? LedgerTransactionType::CancelLate : LedgerTransactionType::CancelEarly,
             'reservation',

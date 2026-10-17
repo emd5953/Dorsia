@@ -11,6 +11,7 @@ use App\Modules\Wallet\Enums\AccountOwnerType;
 use App\Modules\Wallet\Enums\LedgerTransactionType;
 use App\Modules\Wallet\Exceptions\InsufficientWalletBalanceException;
 use App\Shared\Money\Currency;
+use App\Shared\Support\Timestamps;
 use App\Shared\Support\Transactions;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -159,8 +160,8 @@ final class PostTransaction
     }
 
     /**
-     * The transaction row and all of its entries go in one statement (one multi-row INSERT for the entries),
-     * so the deferred constraint triggers see a complete transaction even when constraints are immediate.
+     * Inserts the transaction row and all entries in one multi-row statement. The parent constraint is
+     * deferred until its entries exist so the BEFORE INSERT ownership trigger can inspect parent xmin.
      *
      * @param  list<PostingLine>  $lines
      * @param  array<string, int>  $accountIds
@@ -177,39 +178,50 @@ final class PostTransaction
         array $metadata,
         CarbonImmutable $now,
     ): ?int {
-        $values = implode(', ', array_fill(0, count($lines), '(CAST(? AS bigint), CAST(? AS bigint))'));
+        DB::statement('SET CONSTRAINTS ledger_transactions_have_entries DEFERRED');
 
-        $bindings = [
+        $rows = DB::select(<<<'SQL'
+            INSERT INTO ledger_transactions (type, reference_type, reference_id, idempotency_key, currency, metadata, created_at)
+            VALUES (?, ?, ?, ?, ?, CAST(? AS jsonb), ?)
+            ON CONFLICT (idempotency_key) DO NOTHING
+            RETURNING id
+            SQL, [
             $type->value,
             $referenceType,
             $referenceId,
             $idempotencyKey,
             $currency->value,
             json_encode($metadata === [] ? new stdClass : $metadata, JSON_THROW_ON_ERROR),
-            DbTime::format($now),
-        ];
+            Timestamps::bind($now),
+        ]);
 
-        foreach ($lines as $line) {
-            $bindings[] = $accountIds[$line->accountKey()];
-            $bindings[] = $line->amountCents;
+        if ($rows === []) {
+            DB::statement('SET CONSTRAINTS ledger_transactions_have_entries IMMEDIATE');
+
+            return null;
         }
 
-        $rows = DB::select(<<<SQL
-            WITH tx AS (
-                INSERT INTO ledger_transactions (type, reference_type, reference_id, idempotency_key, currency, metadata, created_at)
-                VALUES (?, ?, ?, ?, ?, CAST(? AS jsonb), ?)
-                ON CONFLICT (idempotency_key) DO NOTHING
-                RETURNING id, created_at
-            ), entries AS (
-                INSERT INTO ledger_entries (transaction_id, account_id, amount_cents, created_at)
-                SELECT tx.id, v.account_id, v.amount_cents, tx.created_at
-                FROM tx CROSS JOIN (VALUES {$values}) AS v(account_id, amount_cents)
-                RETURNING id
-            )
-            SELECT id FROM tx
+        $transactionId = (int) $rows[0]->id;
+
+        $values = implode(', ', array_fill(0, count($lines), '(CAST(? AS bigint), CAST(? AS bigint), CAST(? AS bigint), ?)'));
+        $bindings = [];
+
+        foreach ($lines as $line) {
+            $bindings[] = $transactionId;
+            $bindings[] = $accountIds[$line->accountKey()];
+            $bindings[] = $line->amountCents;
+            $bindings[] = Timestamps::bind($now);
+        }
+
+        DB::statement(<<<SQL
+            INSERT INTO ledger_entries (transaction_id, account_id, amount_cents, created_at)
+            VALUES {$values}
             SQL, $bindings);
 
-        return $rows === [] ? null : (int) $rows[0]->id;
+        DB::statement('SET CONSTRAINTS ledger_transactions_have_entries IMMEDIATE');
+
+        return (int) $transactionId;
+
     }
 
     /**
@@ -218,7 +230,7 @@ final class PostTransaction
     private function applyDeltas(array $deltas, CarbonImmutable $now): void
     {
         $values = implode(', ', array_fill(0, count($deltas), '(CAST(? AS bigint), CAST(? AS bigint))'));
-        $bindings = [DbTime::format($now)];
+        $bindings = [Timestamps::bind($now)];
 
         foreach ($deltas as $id => $delta) {
             $bindings[] = $id;

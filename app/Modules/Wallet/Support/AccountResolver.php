@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Wallet\Support;
 
 use App\Shared\Money\Currency;
+use App\Shared\Support\Timestamps;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -52,7 +53,7 @@ final class AccountResolver
 
     private function create(PostingLine $line, Currency $currency): int
     {
-        $now = DbTime::format(now());
+        $now = Timestamps::bind(now());
 
         DB::table('ledger_accounts')->insertOrIgnore([
             'owner_type' => $line->ownerType->value,

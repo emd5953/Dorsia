@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Wallet\Models;
 
+use App\Shared\Support\Timestamps;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -18,7 +19,7 @@ final class LedgerEntry extends Model
 {
     public $timestamps = false;
 
-    protected $dateFormat = 'Y-m-d H:i:s.uP';
+    protected $dateFormat = Timestamps::FORMAT;
 
     protected $table = 'ledger_entries';
 

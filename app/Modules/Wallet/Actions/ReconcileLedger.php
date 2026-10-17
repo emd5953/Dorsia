@@ -6,7 +6,7 @@ namespace App\Modules\Wallet\Actions;
 
 use App\Modules\Wallet\Data\ReconciliationReport;
 use App\Modules\Wallet\Enums\AccountKind;
-use App\Modules\Wallet\Support\DbTime;
+use App\Shared\Support\Timestamps;
 use Illuminate\Support\Facades\DB;
 
 class ReconcileLedger
@@ -54,7 +54,7 @@ class ReconcileLedger
             foreach ($drift as $account) {
                 DB::table('ledger_accounts')
                     ->where('id', $account['account_id'])
-                    ->update(['balance_cents' => $account['actual'], 'updated_at' => DbTime::format(now())]);
+                    ->update(['balance_cents' => $account['actual'], 'updated_at' => Timestamps::bind(now())]);
             }
         }
 

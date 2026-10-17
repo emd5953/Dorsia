@@ -6,6 +6,7 @@ namespace App\Modules\Wallet\Models;
 
 use App\Modules\Wallet\Database\Factories\LedgerTransactionFactory;
 use App\Modules\Wallet\Enums\LedgerTransactionType;
+use App\Shared\Support\Timestamps;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -27,7 +28,7 @@ final class LedgerTransaction extends Model
 
     public $timestamps = false;
 
-    protected $dateFormat = 'Y-m-d H:i:s.uP';
+    protected $dateFormat = Timestamps::FORMAT;
 
     protected $table = 'ledger_transactions';
 

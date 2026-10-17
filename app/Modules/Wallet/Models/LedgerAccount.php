@@ -7,6 +7,7 @@ namespace App\Modules\Wallet\Models;
 use App\Modules\Wallet\Database\Factories\LedgerAccountFactory;
 use App\Modules\Wallet\Enums\AccountKind;
 use App\Modules\Wallet\Enums\AccountOwnerType;
+use App\Shared\Support\Timestamps;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -23,7 +24,7 @@ final class LedgerAccount extends Model
     /** @use HasFactory<LedgerAccountFactory> */
     use HasFactory;
 
-    protected $dateFormat = 'Y-m-d H:i:s.uP';
+    protected $dateFormat = Timestamps::FORMAT;
 
     protected $table = 'ledger_accounts';
 

@@ -15,17 +15,14 @@ require_once __DIR__.'/../WalletHelpers.php';
  */
 function rawLedgerInsert(array $entries, string $currency = 'USD', string $key = 'raw:1'): void
 {
-    $values = implode(', ', array_map(fn (array $e): string => "({$e[0]}::bigint, {$e[1]}::bigint)", $entries));
-
-    DB::statement(<<<SQL
-        WITH tx AS (
-            INSERT INTO ledger_transactions (type, reference_type, reference_id, idempotency_key, currency, created_at)
-            VALUES ('goodwill_credit', 'member', 1, '{$key}', '{$currency}', now())
-            RETURNING id
-        )
-        INSERT INTO ledger_entries (transaction_id, account_id, amount_cents, created_at)
-        SELECT tx.id, v.account_id, v.amount_cents, now() FROM tx CROSS JOIN (VALUES {$values}) AS v(account_id, amount_cents)
-        SQL);
+    DB::statement('SET CONSTRAINTS ledger_transactions_have_entries DEFERRED');
+    $transactionId = DB::table('ledger_transactions')->insertGetId([
+        'type' => 'goodwill_credit', 'reference_type' => 'member', 'reference_id' => 1,
+        'idempotency_key' => $key, 'currency' => $currency, 'created_at' => now(),
+    ]);
+    $values = implode(', ', array_map(fn (array $e): string => "({$transactionId}::bigint, {$e[0]}::bigint, {$e[1]}::bigint, now())", $entries));
+    DB::statement("INSERT INTO ledger_entries (transaction_id, account_id, amount_cents, created_at) VALUES {$values}");
+    DB::statement('SET CONSTRAINTS ledger_transactions_have_entries IMMEDIATE');
 }
 
 /** @return array{int, int} two account ids: a venue payable and a platform account */
@@ -63,7 +60,7 @@ it('rejects an unbalanced transaction with the trigger message', function (): vo
 it('rejects a transaction with a single entry', function (): void {
     [$a] = twoAccounts();
 
-    expectDatabaseRejects(fn () => rawLedgerInsert([[$a, 100]]), 'at least 2 required');
+    expectDatabaseRejects(fn () => rawLedgerInsert([[$a, 100]]), 'does not balance');
 });
 
 it('rejects a transaction row that has no entries at all', function (): void {
@@ -140,6 +137,20 @@ it('lets a venue_payable account go negative (only member accounts are protected
     expect(DB::table('ledger_accounts')->where('id', $account->id)->value('balance_cents'))->toBe(-1);
 });
 
+it('keeps ledger account identity columns immutable', function (string $column, mixed $value): void {
+    $account = LedgerAccount::factory()->create();
+
+    expectDatabaseRejects(
+        fn () => DB::table('ledger_accounts')->where('id', $account->id)->update([$column => $value]),
+        'identity is immutable',
+    );
+})->with([
+    'owner_id' => ['owner_id', 99],
+    'owner_type' => ['owner_type', 'system'],
+    'currency' => ['currency', 'EUR'],
+    'kind' => ['kind', 'platform'],
+]);
+
 it('enforces owner/kind pairing and one account per owner, kind and currency', function (): void {
     expectDatabaseRejects(
         fn () => LedgerAccount::factory()->create(['owner_type' => 'member', 'owner_id' => 1, 'kind' => AccountKind::VenuePayable]),
@@ -166,6 +177,7 @@ it('defines the three triggers as the contract says', function (): void {
     expect($triggers->keys()->sort()->values()->all())->toBe([
         'ledger_entries_append_only',
         'ledger_entries_balanced',
+        'ledger_entries_parent_is_current',
         'ledger_transactions_append_only',
         'ledger_transactions_have_entries',
     ]);

@@ -109,13 +109,53 @@ it('omits the member line when the member share floors to zero', function (): vo
     $member = newMemberId();
 
     // 1 cent: member 0, platform 0 -> nothing to post.
-    expect(fn () => cancel($member, 1, true))->toThrow(InvalidArgumentException::class);
+    $nothing = cancel($member, 1, true);
+
+    expect($nothing->transactionId)->toBeNull()
+        ->and($nothing->memberCredit->cents)->toBe(0)
+        ->and($nothing->platformShare->cents)->toBe(0)
+        ->and($nothing->venueRetained->cents)->toBe(1)
+        ->and(DB::table('ledger_transactions')->count())->toBe(0)
+        ->and(OutboxEvent::query()->count())->toBe(0);
 
     // 3 cents: member 1, platform 0 -> two lines only.
     $refund = cancel($member, 3, true, 2);
 
     expect(walletEntries($refund->transactionId))->toBe(['venue:7:venue_payable' => 1, 'member:'.$member.':credit' => -1])
         ->and($refund->venueRetained->cents)->toBe(2);
+});
+
+it('does not post a zero-cent early cancellation', function (): void {
+    $refund = cancel(newMemberId(), 0, false);
+
+    expect($refund->transactionId)->toBeNull()
+        ->and($refund->memberCredit->cents)->toBe(0)
+        ->and($refund->platformShare->cents)->toBe(0)
+        ->and($refund->venueRetained->cents)->toBe(0)
+        ->and(DB::table('ledger_transactions')->count())->toBe(0)
+        ->and(OutboxEvent::query()->count())->toBe(0);
+});
+
+it('does not post when both late-cancel shares are configured as zero', function (): void {
+    config(['wallet.late_cancel.member_bps' => 0, 'wallet.late_cancel.platform_bps' => 0]);
+
+    $refund = cancel(newMemberId(), 100000, true);
+
+    expect($refund->transactionId)->toBeNull()
+        ->and($refund->memberCredit->cents)->toBe(0)
+        ->and($refund->platformShare->cents)->toBe(0)
+        ->and($refund->venueRetained->cents)->toBe(100000)
+        ->and(DB::table('ledger_transactions')->count())->toBe(0)
+        ->and(OutboxEvent::query()->count())->toBe(0);
+});
+
+it('posts two lines when platform share is zero', function (): void {
+    config(['wallet.late_cancel.member_bps' => 10000, 'wallet.late_cancel.platform_bps' => 0]);
+    $refund = cancel(newMemberId(), 1, true);
+
+    expect(walletEntries($refund->transactionId))->toHaveCount(2)
+        ->and($refund->memberCredit->cents)->toBe(1)
+        ->and($refund->platformShare->cents)->toBe(0);
 });
 
 it('refuses a split above 100% at runtime', function (): void {
