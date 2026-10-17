@@ -1,0 +1,286 @@
+<?php
+
+declare(strict_types=1);
+
+use App\Modules\Inventory\Actions\ConvertHoldToBooking;
+use App\Modules\Inventory\Actions\HoldSlot;
+use App\Modules\Inventory\Actions\ReleaseHold;
+use App\Modules\Inventory\Data\HoldSlotInput;
+use App\Modules\Inventory\Models\Hold;
+use App\Modules\Inventory\Models\Slot;
+use App\Modules\Inventory\Support\SlotGate;
+use App\Shared\Members\Member;
+use App\Shared\Outbox\OutboxEvent;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Redis;
+use Illuminate\Support\Str;
+use Tests\Modules\Inventory\Support\Fixtures;
+use Tests\Support\Concurrency;
+
+function evlog(string $s): void { file_put_contents('/app/storage/logs/eval.log', $s."\n", FILE_APPEND); }
+
+function evdir(): string { $d = sys_get_temp_dir().'/evdone-'.bin2hex(random_bytes(6)); @mkdir($d); return $d; }
+
+/** monitor closure: returns [checks, violations] */
+function evmonitor(string $dir, int $n, int $slotId): Closure
+{
+    return function () use ($dir, $n, $slotId): array {
+        $checks = 0; $viol = 0; $deadline = microtime(true) + 25;
+        do {
+            $r = DB::selectOne("select s.held_count, s.booked_count, s.capacity, (select count(*) from holds h where h.slot_id=s.id and h.status='active') as act from slots s where s.id=?", [$slotId]);
+            $checks++;
+            if ($r->held_count + $r->booked_count > $r->capacity || $r->held_count != $r->act || $r->held_count < 0) { $viol++; }
+            $done = count(glob("$dir/d-*") ?: []);
+        } while ($done < $n && microtime(true) < $deadline);
+        return ['checks' => $checks, 'viol' => $viol];
+    };
+}
+
+function evhold(int $memberId, int $slotId, ?string $key = null, ?callable $in = null): string
+{
+    try {
+        app(HoldSlot::class)->handle(new HoldSlotInput($memberId, $slotId, 2, $key ?? (string) Str::uuid()), $in);
+        return 'ok';
+    } catch (Throwable $e) {
+        if (! $e instanceof App\Shared\Exceptions\DomainError) { evlog('ERR '.get_class($e).': '.substr($e->getMessage(),0,300).' @ '.$e->getFile().':'.$e->getLine()); }
+        return class_basename($e);
+    }
+}
+
+function evrace(string $dir, int $slotId, array $closures, string $tag): array
+{
+    $n = count($closures);
+    $wrapped = [];
+    foreach ($closures as $i => $c) {
+        $wrapped[] = function () use ($c, $dir, $i) { try { return $c(); } finally { touch("$dir/d-$i"); } };
+    }
+    $wrapped[] = evmonitor($dir, $n, $slotId);
+    $res = Concurrency::run($wrapped);
+    $mon = array_pop($res);
+    $t = array_count_values(array_map(fn ($x) => is_string($x) ? $x : json_encode($x), $res));
+    ksort($t);
+    $s = DB::table('slots')->find($slotId);
+    $act = Hold::query()->where('slot_id', $slotId)->where('status', 'active')->count();
+    $gate = app(SlotGate::class)->value($slotId);
+    evlog(sprintf('%s: results=%s held=%d booked=%d cap=%d active=%d gate=%s monitor=%d checks/%d viol', $tag, json_encode($t), $s->held_count, $s->booked_count, $s->capacity, $act, var_export($gate, true), $mon['checks'], $mon['viol']));
+    return ['t' => $t, 'slot' => $s, 'act' => $act, 'gate' => $gate, 'mon' => $mon];
+}
+
+function evmembers(int $n): array { return Member::factory()->count($n)->create()->pluck('id')->all(); }
+
+function gen(int $slotId): int { return (int) Redis::connection()->command('get', ["slot_gate:{$slotId}:generation"]); }
+
+it('A1 70 racers on 50 tables', function () {
+    $slot = Fixtures::slot(['capacity' => 50]); $m = evmembers(70);
+    $r = evrace(evdir(), $slot->id, array_map(fn ($id) => fn () => evhold($id, $slot->id), $m), 'A1');
+    expect($r['slot']->held_count)->toBe(50)->and($r['mon']['viol'])->toBe(0)->and($r['gate'])->toBe(0);
+});
+
+it('A2 40 racers on 1 table', function () {
+    $slot = Fixtures::slot(['capacity' => 1]); $m = evmembers(40);
+    $r = evrace(evdir(), $slot->id, array_map(fn ($id) => fn () => evhold($id, $slot->id), $m), 'A2');
+    expect($r['slot']->held_count)->toBe(1)->and($r['mon']['viol'])->toBe(0);
+});
+
+it('A3 redis flushed mid-drop', function () {
+    $slot = Fixtures::slot(['capacity' => 30]); $m = evmembers(60);
+    $cl = array_map(fn ($id) => fn () => evhold($id, $slot->id), $m);
+    $cl[] = function () { for ($i = 0; $i < 8; $i++) { usleep(15000); Redis::connection()->flushdb(); } return 'flusher'; };
+    $r = evrace(evdir(), $slot->id, $cl, 'A3');
+    expect($r['slot']->held_count)->toBe(30)->and($r['mon']['viol'])->toBe(0);
+});
+
+it('A4 gate forced to 999 while full', function () {
+    $slot = Fixtures::slot(['capacity' => 10]);
+    foreach (range(1, 10) as $_) { Fixtures::hold($slot); }
+    Redis::connection()->command('set', ["slot_gate:{$slot->id}", 999]);
+    $m = evmembers(40);
+    $r = evrace(evdir(), $slot->id, array_map(fn ($id) => fn () => evhold($id, $slot->id), $m), 'A4');
+    expect($r['slot']->held_count)->toBe(10)->and($r['mon']['viol'])->toBe(0)->and($r['gate'])->toBe(0);
+});
+
+it('A5 drop-in: overdue hold, warm gate 0, 20 racers', function () {
+    $slot = Fixtures::slot(['capacity' => 5]);
+    foreach (range(1, 5) as $_) { Fixtures::hold($slot); }
+    $h = Hold::query()->where('slot_id', $slot->id)->first();
+    DB::table('holds')->where('id', $h->id)->update(['expires_at' => now()->subSecond()]);
+    expect(Fixtures::gate($slot))->toBe(0);
+    $m = evmembers(20);
+    $r = evrace(evdir(), $slot->id, array_map(fn ($id) => fn () => evhold($id, $slot->id), $m), 'A5');
+    $rel = OutboxEvent::query()->where('topic', 'slot.released')->count();
+    evlog("A5 slot.released=$rel overdue_status=".json_encode(Hold::find($h->id)->status));
+    expect($r['t']['ok'] ?? 0)->toBe(1)->and($r['mon']['viol'])->toBe(0)->and($rel)->toBe(1);
+});
+
+it('A5b drop-in while guard held: heals after window', function () {
+    $slot = Fixtures::slot(['capacity' => 2]);
+    Fixtures::hold($slot); Fixtures::hold($slot);
+    // a sold-out request takes the guard
+    $m0 = Fixtures::member(); expect(evhold($m0->id, $slot->id))->toBe('SoldOutException');
+    DB::table('holds')->where('slot_id', $slot->id)->limit(1)->update(['expires_at' => now()->subSecond()]);
+    $m = Fixtures::member(); $t0 = microtime(true); $tries = 0;
+    while (($res = evhold($m->id, $slot->id)) !== 'ok' && microtime(true) - $t0 < 15) { $tries++; usleep(250000); }
+    $dt = microtime(true) - $t0;
+    evlog(sprintf('A5b: healed=%s after %.2fs tries=%d', $res, $dt, $tries));
+    expect($res)->toBe('ok')->and($dt)->toBeLessThan(5.5);
+});
+
+it('A6 crash after DECR via real acquire: heal time', function () {
+    $slot = Fixtures::slot(['capacity' => 3]);
+    Fixtures::hold($slot); // warm gate=2
+    $g = app(SlotGate::class); $g->acquire($slot->id); $g->acquire($slot->id); // abandon 2 units (pending=2)
+    expect(Fixtures::gate($slot))->toBe(0);
+    $m = Fixtures::member(); $t0 = microtime(true); $tries = 0; $log = [];
+    while (($res = evhold($m->id, $slot->id)) !== 'ok' && microtime(true) - $t0 < 20) { $tries++; $log[] = round(microtime(true)-$t0,2).':'.$res.':g='.var_export($g->value($slot->id),true); usleep(250000); }
+    $dt = microtime(true) - $t0;
+    evlog(sprintf('A6: healed=%s after %.2fs tries=%d first=%s', $res, $dt, $tries, implode(',', array_slice($log, 0, 3))));
+    expect($res)->toBe('ok')->and($dt)->toBeLessThan(5.5);
+});
+
+it('A6b crash after DECR via contract Lua (no pending)', function () {
+    $slot = Fixtures::slot(['capacity' => 3]);
+    Fixtures::hold($slot);
+    Redis::connection()->command('decrby', ["slot_gate:{$slot->id}", 2]);
+    $m = Fixtures::member(); $t0 = microtime(true);
+    $res = evhold($m->id, $slot->id);
+    evlog(sprintf('A6b: first request=%s gate=%s', $res, var_export(Fixtures::gate($slot), true)));
+    expect($res)->toBe('ok')->and(Fixtures::gate($slot))->toBe(1);
+});
+
+it('A6c crash then steady traffic on another member keeps pending alive', function () {
+    // capacity 4: 1 abandoned (pending leak), traffic keeps acquiring every 1s for 3 tables
+    $slot = Fixtures::slot(['capacity' => 4]);
+    $g = app(SlotGate::class); $g->rebuild($slot->id); $g->acquire($slot->id); // leak 1 unit + pending 1
+    $res = [];
+    foreach (range(1, 3) as $i) { $res[] = evhold(Fixtures::member()->id, $slot->id); usleep(1000000); }
+    $m = Fixtures::member(); $t0 = microtime(true);
+    while (($r = evhold($m->id, $slot->id)) !== 'ok' && microtime(true) - $t0 < 20) { usleep(250000); }
+    evlog(sprintf('A6c: first3=%s last=%s heal=%.2fs', json_encode($res), $r, microtime(true) - $t0));
+    expect($r)->toBe('ok');
+});
+
+it('A7 gate 0 with 2 free, slot untouched for an hour', function () {
+    $slot = Fixtures::slot(['capacity' => 2]);
+    DB::table('slots')->where('id', $slot->id)->update(['updated_at' => now()->subHour()]);
+    Redis::connection()->command('set', ["slot_gate:{$slot->id}", 0]);
+    $res = evhold(Fixtures::member()->id, $slot->id);
+    evlog("A7: $res gate=".var_export(Fixtures::gate($slot), true));
+    expect($res)->toBe('ok')->and(Fixtures::gate($slot))->toBe(1);
+});
+
+it('A8 release racing convert plus new racers', function () {
+    $slot = Fixtures::slot(['capacity' => 20]);
+    $holds = []; foreach (range(1, 20) as $_) { $holds[] = Fixtures::hold($slot); }
+    $cl = [];
+    foreach ($holds as $i => $h) {
+        $cl[] = fn () => $i % 2 ? (function () use ($h) { try { DB::transaction(fn () => app(ConvertHoldToBooking::class)->handle($h->id, $h->memberId)); return 'conv'; } catch (Throwable $e) { return class_basename($e); } })()
+                       : (function () use ($h) { try { app(ReleaseHold::class)->handle($h->id, App\Modules\Inventory\Enums\HoldReleaseReason::cases()[0]); return 'rel'; } catch (Throwable $e) { return class_basename($e); } })();
+        $cl[] = function () use ($h) { try { DB::transaction(fn () => app(ConvertHoldToBooking::class)->handle($h->id, $h->memberId)); return 'conv'; } catch (Throwable $e) { return 'c:'.class_basename($e); } };
+    }
+    foreach (evmembers(20) as $id) { $cl[] = fn () => evhold($id, $slot->id); }
+    $r = evrace(evdir(), $slot->id, $cl, 'A8');
+    $truth = $r['slot']->capacity - $r['slot']->held_count - $r['slot']->booked_count;
+    evlog("A8 truth=$truth");
+    expect($r['mon']['viol'])->toBe(0)->and($r['gate'])->toBeLessThanOrEqual($truth);
+});
+
+it('A9 one member with overdue hold, 20 keys', function () {
+    $slot = Fixtures::slot(['capacity' => 3]); $mem = Fixtures::member();
+    $h = Fixtures::hold($slot, $mem);
+    DB::table('holds')->where('id', $h->id)->update(['expires_at' => now()->subSecond()]);
+    $r = evrace(evdir(), $slot->id, array_fill(0, 20, fn () => evhold($mem->id, $slot->id)), 'A9');
+    expect($r['act'])->toBe(1)->and($r['slot']->held_count)->toBe(1)->and($r['mon']['viol'])->toBe(0)->and($r['gate'])->toBe(2);
+});
+
+it('R1 refresh storm: 80 on truly full slot', function () {
+    $slot = Fixtures::slot(['capacity' => 10]);
+    foreach (range(1, 10) as $_) { Fixtures::hold($slot); }
+    $g0 = gen($slot->id); $q0 = DB::selectOne("select xact_commit from pg_stat_database where datname=current_database()")->xact_commit;
+    $m = evmembers(80);
+    $r = evrace(evdir(), $slot->id, array_map(fn ($id) => fn () => evhold($id, $slot->id), $m), 'R1');
+    $ttl = Redis::connection()->command('ttl', ["slot_gate:{$slot->id}:refresh"]);
+    evlog('R1: rebuilds='.(gen($slot->id) - $g0)." guard_ttl=$ttl");
+    expect(gen($slot->id) - $g0)->toBeLessThanOrEqual(1)->and($r['slot']->held_count)->toBe(10);
+});
+
+it('R1b storm where Postgres rejects (gate high)', function () {
+    $slot = Fixtures::slot(['capacity' => 10]);
+    foreach (range(1, 10) as $_) { Fixtures::hold($slot); }
+    Redis::connection()->command('set', ["slot_gate:{$slot->id}", 50]);
+    $g0 = gen($slot->id); $m = evmembers(80);
+    $r = evrace(evdir(), $slot->id, array_map(fn ($id) => fn () => evhold($id, $slot->id), $m), 'R1b');
+    evlog('R1b: rebuilds='.(gen($slot->id) - $g0));
+    expect($r['slot']->held_count)->toBe(10)->and($r['mon']['viol'])->toBe(0);
+});
+
+it('R2 rebuild racing slow in-flight holds', function () {
+    $slot = Fixtures::slot(['capacity' => 5]);
+    $m = evmembers(40); $cl = [];
+    foreach (array_slice($m, 0, 5) as $id) { $cl[] = fn () => evhold($id, $slot->id, null, function () { usleep(400000); }); }
+    foreach (range(1, 5) as $_) { $cl[] = function () use ($slot) { $o = []; for ($i = 0; $i < 10; $i++) { usleep(50000); app(SlotGate::class)->rebuild($slot->id, force: true); $o[] = app(SlotGate::class)->value($slot->id); } return 'rb:'.max($o); }; }
+    foreach (array_slice($m, 5) as $id) { $cl[] = function () use ($id, $slot) { usleep(random_int(0, 500000)); return evhold($id, $slot->id); }; }
+    $r = evrace(evdir(), $slot->id, $cl, 'R2');
+    expect($r['slot']->held_count)->toBe(5)->and($r['mon']['viol'])->toBe(0);
+});
+
+it('R2b in-flight longer than pending TTL lets rebuild set gate too high', function () {
+    $slot = Fixtures::slot(['capacity' => 3]);
+    $m = evmembers(30); $cl = [];
+    foreach (array_slice($m, 0, 3) as $id) { $cl[] = fn () => evhold($id, $slot->id, null, function () { sleep(7); }); }
+    $cl[] = function () use ($slot) { sleep(6); app(SlotGate::class)->rebuild($slot->id, force: true); return 'rb:'.app(SlotGate::class)->value($slot->id); };
+    foreach (array_slice($m, 3) as $id) { $cl[] = function () use ($id, $slot) { usleep(6300000 + random_int(0, 300000)); return evhold($id, $slot->id); }; }
+    $r = evrace(evdir(), $slot->id, $cl, 'R2b');
+    expect($r['slot']->held_count)->toBe(3)->and($r['mon']['viol'])->toBe(0);
+});
+
+it('R3 guard key expiry edge', function () {
+    $slot = Fixtures::slot(['capacity' => 4]);
+    foreach (range(1, 4) as $_) { Fixtures::hold($slot); }
+    DB::table('holds')->where('slot_id', $slot->id)->limit(2)->update(['expires_at' => now()->subSecond()]);
+    Redis::connection()->command('set', ["slot_gate:{$slot->id}:refresh", '1', ['PX' => 300]]);
+    $g0 = gen($slot->id); $m = evmembers(60);
+    $r = evrace(evdir(), $slot->id, array_map(fn ($id) => function () use ($id, $slot) { $out = []; $end = microtime(true) + 0.7; do { $x = evhold($id, $slot->id); if ($x === 'ok') return 'ok'; usleep(20000); } while (microtime(true) < $end); return $x; }, $m), 'R3');
+    evlog('R3: rebuilds='.(gen($slot->id) - $g0));
+    expect($r['t']['ok'] ?? 0)->toBe(2)->and($r['mon']['viol'])->toBe(0)->and(gen($slot->id) - $g0)->toBeLessThanOrEqual(2);
+});
+
+it('R4 redis flush during refresh', function () {
+    $slot = Fixtures::slot(['capacity' => 10]);
+    foreach (range(1, 10) as $_) { Fixtures::hold($slot); }
+    DB::table('holds')->where('slot_id', $slot->id)->limit(5)->update(['expires_at' => now()->subSecond()]);
+    $m = evmembers(50);
+    $cl = array_map(fn ($id) => fn () => evhold($id, $slot->id), $m);
+    $cl[] = function () { for ($i = 0; $i < 10; $i++) { usleep(5000); Redis::connection()->flushdb(); } return 'flusher'; };
+    $r = evrace(evdir(), $slot->id, $cl, 'R4');
+    $truth = 10 - $r['slot']->held_count - $r['slot']->booked_count;
+    evlog("R4 truth=$truth pending=".var_export(Redis::connection()->command('get', ["slot_gate:{$slot->id}:pending"]), true));
+    expect($r['mon']['viol'])->toBe(0)->and($r['slot']->held_count)->toBeLessThanOrEqual(10);
+    // free tables must be bookable within a window
+    $t0 = microtime(true); $ok = 0; $last = '';
+    while ($truth > 0 && microtime(true) - $t0 < 12) { $last = evhold(Fixtures::member()->id, $slot->id); if ($last === 'ok') { $ok++; $truth--; } else { usleep(250000); } }
+    evlog(sprintf('R4 post: booked %d more in %.2fs last=%s', $ok, microtime(true) - $t0, $last));
+    expect($truth)->toBe(0);
+});
+
+it('R5 commit-then-pre-completeAttempt double subtraction', function () {
+    // hold commits; before finally runs completeAttempt, a refresh rebuild subtracts pending AND held
+    $slot = Fixtures::slot(['capacity' => 2]);
+    $cl = [];
+    $cl[] = function () use ($slot) { return evhold(Fixtures::member()->id, $slot->id); };
+    $cl[] = function () use ($slot) { usleep(150000); app(SlotGate::class)->rebuild($slot->id, force: true); return 'g='.app(SlotGate::class)->value($slot->id); };
+    // can't pause between commit and finally without seam; simulate: pending inflated while held committed
+    $r = Concurrency::run($cl);
+    evlog('R5: '.json_encode($r));
+    expect(true)->toBeTrue();
+});
+
+it('A9b deadlock victim may be another member', function () {
+    $slot = Fixtures::slot(['capacity' => 3]); $x = Fixtures::member();
+    $h = Fixtures::hold($slot, $x);
+    DB::table('holds')->where('id', $h->id)->update(['expires_at' => now()->subSecond()]);
+    $cl = [];
+    foreach (range(1, 4) as $_) { $cl[] = fn () => 'X:'.evhold($x->id, $slot->id); }
+    foreach (evmembers(16) as $id) { $cl[] = fn () => 'Y:'.evhold($id, $slot->id); }
+    $r = evrace(evdir(), $slot->id, $cl, 'A9b');
+    expect($r['mon']['viol'])->toBe(0);
+});
