@@ -35,7 +35,12 @@ Out of scope for this run: memberships and coupon grants (step 9), admin API (st
 - **Who does what.** From ticket 06 on, and for all rework rounds, engineers run on Codex (`codex exec`). Claude keeps the architect and the eval agents.
 - **Context.** Codex can't see Claude conversations. Every engineer keeps `HANDOFF.md` at its worktree root (uncommitted), updated at each commit: done and remaining checklist, decisions not yet in the contract, failing tests, exact next step.
 - **Commits.** Codex's sandbox makes `.git` read-only, so Codex leaves changes uncommitted; the orchestrator commits them after the eval.
-- **Automatic handoff.** Every running task is registered in `.claude/handoff/tasks/<id>.json` (worktree, brief, status). A `StopFailure` hook runs `.claude/hooks/codex-handoff.sh --hook`; on a usage-limit failure it starts `codex exec` for every task still marked `active`. Logs and results go to `.claude/handoff/logs/`.
+- **Switch at 95% usage.** The statusline payload carries Claude plan usage (`rate_limits.five_hour` / `seven_day`). `.claude/hooks/usage-watch.sh` runs from the statusline; when either reaches 95% it runs `codex-handoff.sh --switch` once per reset window. The switch:
+  1. builds a context pack in `.claude/handoff/context/` from the transcripts: `main.md` (the user's opening request and recent orchestrator conversation) and one file per active Claude task (its brief and its agent's last messages);
+  2. starts a Codex run for every active task still on Claude;
+  3. starts a Codex orchestrator that reads `STATUS.md` and the context pack and runs the build per this process (no pushes, no PRs, nothing on `main`).
+- **Backstop.** A `StopFailure` hook does the same switch if a turn fails on a usage limit before 95% was seen.
+- **Registry.** Every running agent, Claude or Codex, is registered in `.claude/handoff/tasks/<id>.json` (worktree, brief, status, engine, Claude agent id). [STATUS.md](STATUS.md) holds the orchestrator's state and is updated at every milestone. Logs go to `.claude/handoff/logs/`.
 
 ## Fallback when Claude runs out
 
