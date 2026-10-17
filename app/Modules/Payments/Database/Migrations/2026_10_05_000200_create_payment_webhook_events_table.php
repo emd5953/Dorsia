@@ -17,8 +17,8 @@ return new class extends Migration
             $table->string('type', 64);
             $table->string('provider_ref', 255)->nullable();
             $table->jsonb('payload');
-            $table->timestampTz('processed_at')->nullable();
-            $table->timestampTz('created_at');
+            $table->timestampTz('processed_at', 6)->nullable();
+            $table->timestampTz('created_at', 6);
 
             $table->unique(['provider', 'event_id']);
         });

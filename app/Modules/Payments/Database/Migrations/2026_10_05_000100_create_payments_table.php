@@ -23,7 +23,7 @@ return new class extends Migration
             $table->char('currency', 3);
             $table->string('status', 16);
             $table->string('decline_code', 64)->nullable();
-            $table->timestampsTz();
+            $table->timestampsTz(6);
 
             $table->index('reservation_id');
             $table->index('hold_id');

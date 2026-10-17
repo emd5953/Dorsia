@@ -41,7 +41,7 @@ class AuthorizePayment
         }
 
         $key = "hold:{$input->holdId}:auth";
-        $now = now();
+        $now = now()->utc()->format('Y-m-d H:i:s.uP');
 
         $inserted = Payment::query()->insertOrIgnore([
             'member_id' => $input->memberId,
@@ -128,6 +128,6 @@ class AuthorizePayment
         return Payment::query()
             ->whereKey($paymentId)
             ->where('status', PaymentStatus::Pending->value)
-            ->update($values + ['updated_at' => now()]);
+            ->update($values);
     }
 }

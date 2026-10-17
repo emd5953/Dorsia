@@ -33,6 +33,8 @@ final class Payment extends Model
 
     protected $guarded = [];
 
+    protected $dateFormat = 'Y-m-d H:i:s.uP';
+
     protected static function newFactory(): PaymentFactory
     {
         return PaymentFactory::new();

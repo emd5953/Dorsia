@@ -63,7 +63,7 @@ final class RefundPayment implements ShouldQueue
         Payment::query()
             ->whereKey($payment->id)
             ->where('status', PaymentStatus::TimedOut->value)
-            ->update(['status' => PaymentStatus::Refunded->value, 'updated_at' => now()]);
+            ->update(['status' => PaymentStatus::Refunded->value]);
     }
 
     public function failed(Throwable $e): void

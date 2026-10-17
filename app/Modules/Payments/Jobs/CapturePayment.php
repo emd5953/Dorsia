@@ -58,7 +58,7 @@ final class CapturePayment implements ShouldQueue
         Payment::query()
             ->whereKey($payment->id)
             ->where('status', PaymentStatus::Authorized->value)
-            ->update(['status' => PaymentStatus::Captured->value, 'updated_at' => now()]);
+            ->update(['status' => PaymentStatus::Captured->value]);
     }
 
     /** Final failure after every retry (D9: staff resolve it; the ledger already posted). */
@@ -67,7 +67,7 @@ final class CapturePayment implements ShouldQueue
         $marked = Payment::query()
             ->whereKey($this->paymentId)
             ->where('status', PaymentStatus::Authorized->value)
-            ->update(['status' => PaymentStatus::CaptureFailed->value, 'updated_at' => now()]);
+            ->update(['status' => PaymentStatus::CaptureFailed->value]);
 
         if ($marked > 0) {
             Log::critical('Payment capture failed after all retries.', [

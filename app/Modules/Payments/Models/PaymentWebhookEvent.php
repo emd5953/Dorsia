@@ -30,6 +30,8 @@ final class PaymentWebhookEvent extends Model
 
     protected $guarded = [];
 
+    protected $dateFormat = 'Y-m-d H:i:s.uP';
+
     protected static function newFactory(): PaymentWebhookEventFactory
     {
         return PaymentWebhookEventFactory::new();

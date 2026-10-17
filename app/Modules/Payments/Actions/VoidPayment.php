@@ -31,7 +31,7 @@ class VoidPayment
             ->whereKey($paymentId)
             ->where('status', PaymentStatus::Authorized->value)
             ->whereNull('reservation_id')
-            ->update(['status' => PaymentStatus::Refunded->value, 'updated_at' => now()]));
+            ->update(['status' => PaymentStatus::Refunded->value]));
 
         if ($claimed === 0) {
             return;

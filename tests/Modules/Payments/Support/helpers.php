@@ -9,6 +9,7 @@ use App\Shared\Members\Member;
 use App\Shared\Money\Money;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
 const PAYMENTS_TEST_SECRET = 'test-secret';
@@ -46,7 +47,7 @@ function signedWebhook(array $payload): array
 /**
  * @param  array<string, mixed>  $payload
  */
-function postWebhook(TestCase $test, array $payload, ?string $signature = null): Illuminate\Testing\TestResponse
+function postWebhook(TestCase $test, array $payload, ?string $signature = null): TestResponse
 {
     [$raw, $headers] = signedWebhook($payload);
 

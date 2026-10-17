@@ -25,7 +25,7 @@ class MarkPaymentForCapture
             ->whereKey($paymentId)
             ->whereNull('reservation_id')
             ->where('status', PaymentStatus::Authorized->value)
-            ->update(['reservation_id' => $reservationId, 'updated_at' => now()]);
+            ->update(['reservation_id' => $reservationId]);
 
         if ($attached === 0) {
             throw new PaymentConflictException('The payment cannot be attached to a reservation.');
