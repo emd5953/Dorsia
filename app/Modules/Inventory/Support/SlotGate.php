@@ -101,18 +101,22 @@ LUA;
 
             app(ExpireOverdueHolds::class)->handle($slotId, releaseGate: false);
 
-            $slot = DB::table('slots')->where('id', $slotId)->first(['capacity', 'booked_count', 'held_count', 'starts_at']);
+            // FOR SHARE until the SET is done: a release that changed the slot cannot commit (and INCR) in
+            // between, so this SET can never overwrite its increment with an older, lower value.
+            return DB::transaction(function () use ($slotId): bool {
+                $slot = DB::table('slots')->where('id', $slotId)->sharedLock()->first(['capacity', 'booked_count', 'held_count', 'starts_at']);
 
-            if ($slot === null) {
-                return false;
-            }
+                if ($slot === null) {
+                    return false;
+                }
 
-            $ttl = max(1, (int) now()->diffInSeconds(CarbonImmutable::parse((string) $slot->starts_at)->addDay(), false));
-            $value = max(0, (int) $slot->capacity - (int) $slot->booked_count - (int) $slot->held_count);
+                $ttl = max(1, (int) now()->diffInSeconds(CarbonImmutable::parse((string) $slot->starts_at)->addDay(), false));
+                $value = max(0, (int) $slot->capacity - (int) $slot->booked_count - (int) $slot->held_count);
 
-            $this->connection()->command('set', [$this->key($slotId), $value, ['EX' => $ttl]]);
+                $this->connection()->command('set', [$this->key($slotId), $value, ['EX' => $ttl]]);
 
-            return true;
+                return true;
+            });
         } finally {
             $lock->release();
         }
