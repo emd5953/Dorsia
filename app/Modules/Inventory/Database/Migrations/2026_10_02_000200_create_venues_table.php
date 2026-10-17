@@ -20,7 +20,7 @@ return new class extends Migration
             $table->string('status', 16)->default('active');
             $table->bigInteger('base_per_person_cents');
             $table->char('currency', 3)->default('USD');
-            $table->timestampsTz();
+            $table->timestampsTz(6);
 
             $table->index('city_id');
         });

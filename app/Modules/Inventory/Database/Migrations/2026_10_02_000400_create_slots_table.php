@@ -15,15 +15,15 @@ return new class extends Migration
             $table->id();
             $table->foreignId('venue_id')->constrained('venues');
             $table->foreignId('drop_id')->nullable()->constrained('drops');
-            $table->timestampTz('starts_at');
+            $table->timestampTz('starts_at', 6);
             $table->integer('capacity');
             $table->integer('held_count')->default(0);
             $table->integer('booked_count')->default(0);
             $table->smallInteger('min_party_size');
             $table->smallInteger('max_party_size');
-            $table->timestampTz('released_at');
-            $table->timestampTz('sold_out_at')->nullable();
-            $table->timestampsTz();
+            $table->timestampTz('released_at', 6);
+            $table->timestampTz('sold_out_at', 6)->nullable();
+            $table->timestampsTz(6);
 
             $table->unique(['venue_id', 'starts_at', 'min_party_size', 'max_party_size']);
             $table->index(['venue_id', 'starts_at']);

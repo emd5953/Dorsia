@@ -18,11 +18,11 @@ return new class extends Migration
             $table->smallInteger('party_size');
             $table->string('status', 16);
             $table->string('idempotency_key', 255)->unique();
-            $table->timestampTz('expires_at');
-            $table->timestampTz('expiring_notified_at')->nullable();
-            $table->timestampTz('closed_at')->nullable();
+            $table->timestampTz('expires_at', 6);
+            $table->timestampTz('expiring_notified_at', 6)->nullable();
+            $table->timestampTz('closed_at', 6)->nullable();
             $table->string('close_reason', 32)->nullable();
-            $table->timestampsTz();
+            $table->timestampsTz(6);
         });
 
         DB::statement('ALTER TABLE holds ADD CONSTRAINT holds_party_size_check CHECK (party_size >= 1)');

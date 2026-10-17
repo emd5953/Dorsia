@@ -39,14 +39,14 @@ final class HoldCloser
 
             DB::table('holds')->where('id', $holdId)->update([
                 'status' => $status->value,
-                'closed_at' => $now,
+                'closed_at' => SlotRows::ts($now),
                 'close_reason' => $reason,
-                'updated_at' => $now,
+                'updated_at' => SlotRows::ts($now),
             ]);
 
             $slot = DB::selectOne(
                 'UPDATE slots SET held_count = held_count - 1, updated_at = ? WHERE id = ? AND held_count > 0 RETURNING *',
-                [$now, $hold->slot_id],
+                [SlotRows::ts($now), $hold->slot_id],
             );
 
             if ($slot === null) {

@@ -29,8 +29,8 @@ final class SearchAvailability
 
         $slots = SlotRows::joined()
             ->where('slots.venue_id', $venueId)
-            ->where('slots.starts_at', '>=', $dayStart->utc())
-            ->where('slots.starts_at', '<', $dayEnd->utc())
+            ->where('slots.starts_at', '>=', SlotRows::ts($dayStart))
+            ->where('slots.starts_at', '<', SlotRows::ts($dayEnd))
             ->orderBy('slots.starts_at')
             ->orderBy('slots.id')
             ->get()

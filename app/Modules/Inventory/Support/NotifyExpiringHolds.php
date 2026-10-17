@@ -26,8 +26,8 @@ final class NotifyExpiringHolds
         $ids = DB::table('holds')
             ->where('status', 'active')
             ->whereNull('expiring_notified_at')
-            ->where('expires_at', '>', $now)
-            ->where('expires_at', '<=', $horizon)
+            ->where('expires_at', '>', SlotRows::ts($now))
+            ->where('expires_at', '<=', SlotRows::ts($horizon))
             ->orderBy('expires_at')
             ->limit($limit)
             ->pluck('id');
@@ -41,7 +41,7 @@ final class NotifyExpiringHolds
                     "UPDATE holds SET expiring_notified_at = ?, updated_at = ?
                      WHERE id = ? AND status = 'active' AND expiring_notified_at IS NULL AND expires_at > ?
                      RETURNING *",
-                    [$now, $now, $id, $now],
+                    [SlotRows::ts($now), SlotRows::ts($now), $id, SlotRows::ts($now)],
                 );
 
                 if ($hold === null) {

@@ -31,7 +31,7 @@ class ReleaseBooking
 
         $updated = DB::selectOne(
             'UPDATE slots SET booked_count = booked_count - 1, updated_at = ? WHERE id = ? AND booked_count > 0 RETURNING *',
-            [$now, $slotId],
+            [SlotRows::ts($now), $slotId],
         );
 
         $joined = SlotRows::find($slotId) ?? throw new SlotNotFoundException;

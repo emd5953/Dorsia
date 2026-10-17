@@ -22,7 +22,7 @@ final class ExpireOverdueHolds
     {
         $query = DB::table('holds')
             ->where('status', 'active')
-            ->where('expires_at', '<=', now())
+            ->where('expires_at', '<=', SlotRows::ts(now()))
             ->orderBy('expires_at')
             ->orderBy('id');
 

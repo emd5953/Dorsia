@@ -21,8 +21,8 @@ final class RebuildRecentGates
         $now = now();
 
         $ids = DB::table('slots')
-            ->where('starts_at', '>', $now)
-            ->where('updated_at', '>=', $now->subMinutes((int) config('inventory.gate.rebuild_recent_minutes')))
+            ->where('starts_at', '>', SlotRows::ts($now))
+            ->where('updated_at', '>=', SlotRows::ts($now->subMinutes((int) config('inventory.gate.rebuild_recent_minutes'))))
             ->pluck('id');
 
         foreach ($ids as $id) {

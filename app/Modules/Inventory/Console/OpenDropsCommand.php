@@ -20,7 +20,7 @@ final class OpenDropsCommand extends Command
     {
         $ids = DB::table('drops')
             ->whereNull('opened_at')
-            ->where('opens_at', '<=', now())
+            ->where('opens_at', '<=', SlotRows::ts(now()))
             ->orderBy('opens_at')
             ->orderBy('id')
             ->pluck('id');
@@ -34,7 +34,7 @@ final class OpenDropsCommand extends Command
                 // The conditional update is the once-only guard, even with two schedulers running.
                 $drop = DB::selectOne(
                     'UPDATE drops SET opened_at = ?, updated_at = ? WHERE id = ? AND opened_at IS NULL RETURNING *',
-                    [$now, $now, $id],
+                    [SlotRows::ts($now), SlotRows::ts($now), $id],
                 );
 
                 if ($drop === null) {

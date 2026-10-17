@@ -24,6 +24,8 @@ final class Drop extends Model
 
     protected $guarded = [];
 
+    protected $dateFormat = 'Y-m-d H:i:s.uP';
+
     protected function casts(): array
     {
         return [

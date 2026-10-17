@@ -15,7 +15,7 @@ return new class extends Migration
             $table->string('name', 120);
             $table->string('slug', 120)->unique();
             $table->char('country_code', 2);
-            $table->timestampsTz();
+            $table->timestampsTz(6);
         });
     }
 

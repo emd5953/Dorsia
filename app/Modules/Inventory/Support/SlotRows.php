@@ -48,6 +48,12 @@ final class SlotRows
         return CarbonImmutable::parse((string) $value)->utc();
     }
 
+    /** Microsecond-precision UTC string for any timestamp bound into SQL (C§3). */
+    public static function ts(CarbonImmutable $time): string
+    {
+        return $time->utc()->format('Y-m-d H:i:s.uP');
+    }
+
     public static function iso(CarbonImmutable $time): string
     {
         return $time->utc()->format('Y-m-d\TH:i:s\Z');

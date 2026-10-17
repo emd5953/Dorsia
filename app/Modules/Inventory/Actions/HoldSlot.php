@@ -169,11 +169,11 @@ class HoldSlot
     private function attempt(HoldSlotInput $input, stdClass $slot, ?callable $inTransaction): ?HoldData
     {
         return DB::transaction(function () use ($input, $slot, $inTransaction): ?HoldData {
-            $now = now()->startOfSecond();
+            $now = now();
 
             $updated = DB::selectOne(
                 'UPDATE slots SET held_count = held_count + 1, updated_at = ? WHERE id = ? AND held_count + booked_count < capacity RETURNING *',
-                [$now, $input->slotId],
+                [SlotRows::ts($now), $input->slotId],
             );
 
             if ($updated === null) {
@@ -189,9 +189,9 @@ class HoldSlot
                 'party_size' => $input->partySize,
                 'status' => HoldStatus::Active->value,
                 'idempotency_key' => $input->idempotencyKey,
-                'expires_at' => $expiresAt,
-                'created_at' => $now,
-                'updated_at' => $now,
+                'expires_at' => SlotRows::ts($expiresAt),
+                'created_at' => SlotRows::ts($now),
+                'updated_at' => SlotRows::ts($now),
             ]);
 
             $this->outbox->record(OutboxTopic::SlotHeld, SlotRows::payload($row, $now));
@@ -212,7 +212,7 @@ class HoldSlot
             ->where('slot_id', $input->slotId)
             ->where('member_id', $input->memberId)
             ->where('status', HoldStatus::Active->value)
-            ->where('expires_at', '<=', now())
+            ->where('expires_at', '<=', SlotRows::ts(now()))
             ->exists();
     }
 

@@ -28,7 +28,7 @@ class GetSelloutStats
              WHERE s.sold_out_at >= ?
              GROUP BY s.venue_id, weekday, hour
              ORDER BY s.venue_id, weekday, hour',
-            [$since],
+            [$since->utc()->format('Y-m-d H:i:s.uP')],
         );
 
         return array_values(array_map(

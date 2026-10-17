@@ -58,16 +58,16 @@ class ConvertHoldToBooking
 
         DB::table('holds')->where('id', $holdId)->update([
             'status' => HoldStatus::Converted->value,
-            'closed_at' => $now,
+            'closed_at' => SlotRows::ts($now),
             'close_reason' => 'converted',
-            'updated_at' => $now,
+            'updated_at' => SlotRows::ts($now),
         ]);
 
         $updated = DB::selectOne(
             'UPDATE slots SET held_count = held_count - 1, booked_count = booked_count + 1, updated_at = ?,
-                sold_out_at = CASE WHEN sold_out_at IS NULL AND booked_count + 1 >= capacity THEN ? ELSE sold_out_at END
+                sold_out_at = CASE WHEN sold_out_at IS NULL AND booked_count + 1 >= capacity THEN ?::timestamptz ELSE sold_out_at END
              WHERE id = ? AND held_count > 0 RETURNING *',
-            [$now, $now, $slotId],
+            [SlotRows::ts($now), SlotRows::ts($now), $slotId],
         );
 
         if ($updated === null) {
@@ -93,7 +93,7 @@ class ConvertHoldToBooking
             return;
         }
 
-        $marked = DB::table('drops')->where('id', $dropId)->whereNull('sold_out_at')->update(['sold_out_at' => $now, 'updated_at' => $now]);
+        $marked = DB::table('drops')->where('id', $dropId)->whereNull('sold_out_at')->update(['sold_out_at' => SlotRows::ts($now), 'updated_at' => SlotRows::ts($now)]);
 
         if ($marked === 1) {
             $this->outbox->record(OutboxTopic::DropSoldOut, [
