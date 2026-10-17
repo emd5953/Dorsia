@@ -12,9 +12,9 @@ Orchestrator state for the steps 1–8 build. Updated at every milestone so anot
 | 04 Pricing | Merged (+2 hardening batches) | feat/pricing | 94 |
 | 03 Ledger | Merged | feat/ledger | 89, 88, 91 (gate fail), 93 |
 | 05 Payments | Merged | feat/payments-gateway | 86, 85, 93 |
-| 02 Inventory/holds | Round-3 implementation complete; round-3 eval pending | feat/inventory-holds | 87, 83 (fail), round 3 pending |
+| 02 Inventory/holds | Merged (architect takeover) | feat/inventory-holds | 87, 83, 87, 89, 93 |
 | 07 Real-time | Round-2 implementation complete; round-2 eval pending | feat/realtime-outbox | 79 (fail), round 2 pending |
-| 06 Booking confirm/cancel | Not started; needs 02 merged | – | – |
+| 06 Booking confirm/cancel | Building (Claude) | feat/booking-confirm-cancel | – |
 | 08 k6 drop test | Not started; needs 06 and 07 | – | – |
 
 ## Running
