@@ -63,6 +63,12 @@ class HoldSlot
 
         $this->validate($slot, $input->partySize);
 
+        // A member's own live hold means this is a duplicate: say so before it takes a gate unit that
+        // other members could then be refused for.
+        if ($this->hasLiveHold($input)) {
+            throw new ActiveHoldExistsException;
+        }
+
         $unitTaken = $this->takeGateUnit($input->slotId);
 
         try {
@@ -236,6 +242,16 @@ class HoldSlot
 
             return $hold;
         });
+    }
+
+    private function hasLiveHold(HoldSlotInput $input): bool
+    {
+        return DB::table('holds')
+            ->where('slot_id', $input->slotId)
+            ->where('member_id', $input->memberId)
+            ->where('status', HoldStatus::Active->value)
+            ->where('expires_at', '>', Timestamps::bind(now()))
+            ->exists();
     }
 
     private function hasOverdueHold(HoldSlotInput $input): bool

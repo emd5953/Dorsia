@@ -14,6 +14,8 @@ use App\Modules\Inventory\Support\SlotGate;
 use App\Shared\Members\Member;
 use App\Shared\Outbox\OutboxEvent;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Redis\Events\CommandExecuted;
+use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Str;
 
 /**
@@ -73,5 +75,17 @@ final class Fixtures
     public static function drop(Venue $venue, array $attributes = []): Drop
     {
         return Drop::factory()->create(array_merge(['venue_id' => $venue->id], $attributes));
+    }
+
+    /**
+     * Calls $callback after every command on the default Redis connection (command events are off by default).
+     *
+     * @param  \Closure(CommandExecuted): void  $callback
+     */
+    public static function listenRedis(\Closure $callback): void
+    {
+        Redis::enableEvents();
+        Redis::purge('default');
+        Redis::connection()->listen($callback);
     }
 }

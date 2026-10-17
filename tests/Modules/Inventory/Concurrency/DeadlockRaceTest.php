@@ -89,3 +89,23 @@ it('never deadlocks when ConvertHoldToBooking races a new hold attempt of the sa
 
     expect($results[0])->toBe('1')->and($unexpected)->toBe([]);
 });
+
+it('never tells other members sold_out while a member fires parallel duplicates and tables are free (A9b shape)', function (): void {
+    $slot = Fixtures::slot(['capacity' => 3]);
+    $owner = Fixtures::member();
+    Fixtures::hold($slot, $owner);
+    $others = Member::factory()->count(2)->create();
+
+    $closures = array_fill(0, 18, fn (): string => 'X:'.raceHold($owner->id, $slot->id));
+
+    foreach ($others as $other) {
+        $closures[] = fn (): string => 'Y:'.raceHold($other->id, $slot->id);
+    }
+
+    $results = Concurrency::run($closures);
+
+    expect(array_values(array_unique(array_filter($results, fn (string $r): bool => str_starts_with($r, 'X:')))))->toBe(['X:active_hold_exists'])
+        ->and(array_values(array_filter($results, fn (string $r): bool => str_starts_with($r, 'Y:') && $r !== 'Y:ok')))->toBe([])
+        ->and(Slot::query()->findOrFail($slot->id)->held_count)->toBe(3)
+        ->and(Fixtures::gate($slot))->toBe(0);
+});
