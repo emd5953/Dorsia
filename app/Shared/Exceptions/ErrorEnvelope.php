@@ -17,8 +17,9 @@ final class ErrorEnvelope
 {
     /**
      * @param  array<string, mixed>  $details
+     * @param  array<string, string>  $headers
      */
-    public static function response(string $code, string $message, int $status, array $details = []): JsonResponse
+    public static function response(string $code, string $message, int $status, array $details = [], array $headers = []): JsonResponse
     {
         return new JsonResponse([
             'error' => [
@@ -26,7 +27,7 @@ final class ErrorEnvelope
                 'message' => $message,
                 'details' => (object) $details,
             ],
-        ], $status);
+        ], $status, $headers);
     }
 
     public static function fromDomainError(DomainError $e): JsonResponse
@@ -49,15 +50,18 @@ final class ErrorEnvelope
         }
 
         if ($e instanceof HttpExceptionInterface) {
-            return match ($e->getStatusCode()) {
-                401 => self::response('unauthenticated', 'Unauthenticated.', 401),
-                403 => self::response('forbidden', 'Forbidden.', 403),
-                404 => self::response('not_found', 'Not found.', 404),
-                405 => self::response('method_not_allowed', 'Method not allowed.', 405),
-                429 => self::response('rate_limited', 'Too many requests.', 429),
-                default => $e->getStatusCode() < 500
-                    ? self::response('http_error', 'Request error.', $e->getStatusCode())
-                    : self::response('server_error', 'Server error.', $e->getStatusCode()),
+            // Keep protocol headers such as Allow (405) and Retry-After (429, 503).
+            $headers = $e->getHeaders();
+            $status = $e->getStatusCode();
+
+            return match (true) {
+                $status === 401 => self::response('unauthenticated', 'Unauthenticated.', 401, [], $headers),
+                $status === 403 => self::response('forbidden', 'Forbidden.', 403, [], $headers),
+                $status === 404 => self::response('not_found', 'Not found.', 404, [], $headers),
+                $status === 405 => self::response('method_not_allowed', 'Method not allowed.', 405, [], $headers),
+                $status === 429 => self::response('rate_limited', 'Too many requests.', 429, [], $headers),
+                $status < 500 => self::response('http_error', 'Request error.', $status, [], $headers),
+                default => self::response('server_error', 'Server error.', $status, [], $headers),
             };
         }
 

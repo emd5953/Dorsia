@@ -39,7 +39,12 @@ beforeEach(function (): void {
         ->post('/api/_test/idempotent-conflict', function () {
             $this->handlerCalls++;
 
-            return response()->json(['error' => ['code' => 'sold_out', 'message' => 'x', 'details' => (object) []]], 409);
+            // Deliberately not Laravel's compact encoding: a decode/re-encode would change these bytes.
+            return response(
+                '{ "error" : {"code":"sold_out","message":"x","details":{},"ratio":1.0} }',
+                409,
+                ['Content-Type' => 'application/json'],
+            );
         });
 
     $this->member = Member::factory()->create();
@@ -116,9 +121,16 @@ it('replays status, body and header for the same key and body without re-running
 it('replays stored 4xx responses (D6)', function (): void {
     $uri = '/api/_test/idempotent-conflict';
 
-    idempotentPost($this, $this->token, 'conflict-1', uri: $uri)->assertStatus(409);
+    $first = idempotentPost($this, $this->token, 'conflict-1', uri: $uri);
+    $first->assertStatus(409);
 
-    idempotentPost($this, $this->token, 'conflict-1', uri: $uri)
+    $second = idempotentPost($this, $this->token, 'conflict-1', uri: $uri);
+
+    expect($second->getContent())->toBe($first->getContent())
+        ->and($second->getContent())->toBe('{ "error" : {"code":"sold_out","message":"x","details":{},"ratio":1.0} }')
+        ->and($second->headers->get('Content-Type'))->toBe('application/json');
+
+    $second
         ->assertStatus(409)
         ->assertHeader('Idempotent-Replayed', 'true')
         ->assertJsonPath('error.code', 'sold_out');
