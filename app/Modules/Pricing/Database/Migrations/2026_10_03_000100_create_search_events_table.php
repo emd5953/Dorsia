@@ -17,12 +17,12 @@ return new class extends Migration
             $table->unsignedBigInteger('venue_id');
             $table->date('requested_date');
             $table->smallInteger('requested_hour');
-            $table->timestampTz('requested_at');
+            $table->timestampTz('requested_at', 6);
             $table->smallInteger('local_weekday');
             $table->smallInteger('party_size');
             $table->string('party_band', 8);
             $table->boolean('had_availability');
-            $table->timestampTz('created_at');
+            $table->timestampTz('created_at', 6);
 
             $table->unique(
                 ['member_id', 'venue_id', 'requested_date', 'requested_hour', 'party_size'],

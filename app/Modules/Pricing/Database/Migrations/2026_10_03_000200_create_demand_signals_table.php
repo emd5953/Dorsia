@@ -20,7 +20,7 @@ return new class extends Migration
             $table->integer('sellout_seconds_p50')->nullable();
             $table->integer('unmet_searches')->default(0);
             $table->integer('bid_count')->default(0);
-            $table->timestampTz('computed_at');
+            $table->timestampTz('computed_at', 6);
 
             $table->unique(['venue_id', 'weekday', 'hour', 'party_band']);
         });

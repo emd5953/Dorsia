@@ -175,6 +175,15 @@ it('is idempotent and stamps the new computed_at on a re-run', function (): void
         ->and(DemandSignal::query()->where('computed_at', $later->utc()->format('Y-m-d H:i:s.uP'))->count())->toBe(3);
 });
 
+it('keeps sub-second precision so a run never deletes its own rows', function (): void {
+    fakeSellout();
+    unmetSearch('1-2', $this->now->subDay());
+
+    $written = app(ComputeDemandSignals::class)->handle($this->now->setMicroseconds(100));
+
+    expect($written)->toBe(3)->and(DemandSignal::query()->count())->toBe(3);
+});
+
 it('removes every row when there are no searches or stats', function (): void {
     fakeSellout();
     DemandSignal::factory()->create(['computed_at' => $this->now->subMinutes(15)]);

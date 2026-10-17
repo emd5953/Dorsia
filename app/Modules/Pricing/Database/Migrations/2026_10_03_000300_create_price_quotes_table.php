@@ -21,8 +21,8 @@ return new class extends Migration
             $table->bigInteger('amount_cents');
             $table->char('currency', 3);
             $table->jsonb('inputs');
-            $table->timestampTz('expires_at');
-            $table->timestampTz('created_at');
+            $table->timestampTz('expires_at', 6);
+            $table->timestampTz('created_at', 6);
         });
 
         DB::statement('ALTER TABLE price_quotes ADD CONSTRAINT price_quotes_party_size_check CHECK (party_size >= 1)');
