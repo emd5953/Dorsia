@@ -21,6 +21,8 @@ class RecordSearch
     public function handle(AvailabilitySearched $event): bool
     {
         // Date and hour are venue-local; requested_at is the UTC instant of that local wall time.
+        // A wall time skipped by a DST jump (e.g. 02:00 on spring-forward day) resolves to the next real hour;
+        // requested_hour keeps the hour searched, so dedupe is unaffected.
         $requestedAt = CarbonImmutable::parse($event->requestedDate, $event->venueTimezone)
             ->setTime($event->requestedHour, 0);
         $requestedDate = CarbonImmutable::parse($event->requestedDate, 'UTC');
