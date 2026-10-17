@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Modules\Realtime\Console;
 
 use App\Modules\Realtime\Actions\PublishOutboxBatch;
+use App\Modules\Realtime\Support\BatchOutcome;
+use App\Modules\Realtime\Support\Pause;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -17,7 +19,7 @@ final class PublishOutboxCommand extends Command
 
     private bool $stopping = false;
 
-    public function handle(PublishOutboxBatch $publisher): int
+    public function handle(PublishOutboxBatch $publisher, BatchOutcome $outcome, Pause $pause): int
     {
         $limit = max(1, (int) ($this->option('limit') ?? config('realtime.outbox.batch', 100)));
         $sleepMs = max(0, (int) ($this->option('sleep-ms') ?? config('realtime.outbox.sleep_ms', 100)));
@@ -36,18 +38,30 @@ final class PublishOutboxCommand extends Command
 
             try {
                 $count = $publisher->handle($limit);
-                $backoffSeconds = 1;
             } catch (Throwable $exception) {
                 report($exception);
                 DB::purge();
                 if ($this->option('once')) {
                     return self::FAILURE;
                 }
-                sleep($backoffSeconds);
+                $pause->seconds($backoffSeconds);
                 $backoffSeconds = min(30, $backoffSeconds * 2);
 
                 continue;
             }
+
+            if ($outcome->broadcastFailed) {
+                // Broadcaster outage: back off like a DB error so live rows are not burned through.
+                if ($this->option('once')) {
+                    return self::FAILURE;
+                }
+                $pause->seconds($backoffSeconds);
+                $backoffSeconds = min(30, $backoffSeconds * 2);
+
+                continue;
+            }
+
+            $backoffSeconds = 1;
 
             if ($this->option('once')) {
                 break;
@@ -58,7 +72,7 @@ final class PublishOutboxCommand extends Command
             }
 
             if ($count === 0 && $sleepMs > 0) {
-                usleep($sleepMs * 1000);
+                $pause->milliseconds($sleepMs);
             }
         }
 
