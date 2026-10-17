@@ -11,6 +11,7 @@ use App\Modules\Pricing\Models\PriceQuote;
 use App\Modules\Pricing\Support\DemandSnapshot;
 use App\Modules\Pricing\Support\PartyBands;
 use App\Modules\Pricing\Support\PriceCalculator;
+use App\Shared\Support\Timestamps;
 use App\Shared\Support\Transactions;
 use Illuminate\Support\Facades\DB;
 use LogicException;
@@ -53,8 +54,8 @@ class QuoteHold
             'amount_cents' => $breakdown->perPersonCents * $input->partySize,
             'currency' => $input->basePerPerson->currency->value,
             'inputs' => json_encode($breakdown->inputs, JSON_THROW_ON_ERROR),
-            'expires_at' => $input->expiresAt->utc()->format('Y-m-d H:i:s.uP'),
-            'created_at' => now()->utc()->format('Y-m-d H:i:s.uP'),
+            'expires_at' => Timestamps::bind($input->expiresAt),
+            'created_at' => Timestamps::bind(now()),
         ]);
 
         return PriceQuote::query()->where('hold_id', $input->holdId)->firstOrFail()->toData();

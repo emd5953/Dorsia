@@ -6,6 +6,7 @@ namespace App\Modules\Pricing\Actions;
 
 use App\Modules\Inventory\Actions\GetSelloutStats;
 use App\Modules\Pricing\Support\PartyBands;
+use App\Shared\Support\Timestamps;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
@@ -98,7 +99,7 @@ class ComputeDemandSignals
 
     private static function timestamp(CarbonImmutable $at): string
     {
-        return $at->utc()->format('Y-m-d H:i:s.uP');
+        return Timestamps::bind($at);
     }
 
     private static function key(int $venueId, int $weekday, int $hour): string

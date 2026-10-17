@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Pricing\Actions;
 
+use App\Shared\Support\Timestamps;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
@@ -20,7 +21,7 @@ class PruneSearchEvents
         $cutoff = $now->subDays(is_int($retention) ? $retention : 90);
 
         return DB::table('search_events')
-            ->where('created_at', '<', $cutoff->utc()->format('Y-m-d H:i:s.uP'))
+            ->where('created_at', '<', Timestamps::bind($cutoff))
             ->delete();
     }
 }
