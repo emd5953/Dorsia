@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Modules\Realtime\Actions;
 
+use App\Modules\Realtime\Support\BatchOutcome;
 use App\Modules\Realtime\Support\ChannelMap;
 use App\Modules\Realtime\Support\OutboxBroadcast;
+use App\Modules\Realtime\Support\PayloadShape;
 use App\Shared\Outbox\OutboxEvent;
 use App\Shared\Outbox\OutboxTopic;
 use App\Shared\Support\Timestamps;
@@ -16,13 +18,20 @@ use Throwable;
 
 class PublishOutboxBatch
 {
+    public function __construct(private readonly BatchOutcome $outcome) {}
+
     public function handle(int $limit = 100): int
     {
+        $this->outcome->broadcastFailed = false;
+
         if ($limit < 1) {
             return 0;
         }
 
-        return DB::transaction(function () use ($limit): int {
+        /** @var list<array{id: int, error: string, reason: string}> $deadLettered */
+        $deadLettered = [];
+
+        $published = DB::transaction(function () use ($limit, &$deadLettered): int {
             $rows = OutboxEvent::query()
                 ->whereNull('published_at')
                 ->where('attempts', '<', (int) config('realtime.outbox.max_attempts', 5))
@@ -36,12 +45,18 @@ class PublishOutboxBatch
             foreach ($rows as $row) {
                 try {
                     $topic = OutboxTopic::from($row->topic);
+                    $shaped = PayloadShape::validate($topic, $row->payload);
                     $target = ChannelMap::map($topic, $row->payload);
-                    $payload = self::publicPayload($topic, $row->payload);
+                    $payload = $shaped['payload'];
                 } catch (Throwable $exception) {
                     $this->deadLetter($row, $exception);
+                    $deadLettered[] = ['id' => $row->id, 'error' => (string) $row->last_error, 'reason' => 'Realtime outbox row could not be mapped and was dead-lettered.'];
 
                     continue;
+                }
+
+                if ($shaped['dropped'] !== []) {
+                    Log::warning('Realtime outbox payload had keys outside the C§7 shape; they were dropped.', ['outbox_id' => $row->id, 'topic' => $topic->value, 'dropped_keys' => $shaped['dropped']]);
                 }
 
                 try {
@@ -53,8 +68,9 @@ class PublishOutboxBatch
                     $row->attempts++;
                     $row->last_error = mb_substr($exception->getMessage(), 0, 4000);
                     $row->save();
+                    $this->outcome->broadcastFailed = true;
                     if ($row->attempts >= (int) config('realtime.outbox.max_attempts', 5)) {
-                        Log::critical('Realtime outbox row dead-lettered after repeated publish failures.', ['outbox_id' => $row->id, 'error' => $row->last_error]);
+                        $deadLettered[] = ['id' => $row->id, 'error' => $row->last_error, 'reason' => 'Realtime outbox row dead-lettered after repeated publish failures.'];
 
                         continue;
                     }
@@ -64,33 +80,12 @@ class PublishOutboxBatch
 
             return $published;
         });
-    }
 
-    /**
-     * @param  array<string, mixed>  $payload
-     * @return array<string, mixed>
-     */
-    private static function publicPayload(OutboxTopic $topic, array $payload): array
-    {
-        $keys = match ($topic) {
-            OutboxTopic::SlotHeld, OutboxTopic::SlotBooked => ['slot_id', 'venue_id', 'drop_id', 'starts_at', 'capacity', 'available', 'occurred_at'],
-            OutboxTopic::SlotReleased => ['slot_id', 'venue_id', 'drop_id', 'starts_at', 'capacity', 'available', 'occurred_at', 'reason'],
-            OutboxTopic::DropOpened => ['drop_id', 'venue_id', 'opens_at', 'slot_ids'],
-            OutboxTopic::DropSoldOut => ['drop_id', 'venue_id', 'sold_out_at'],
-            OutboxTopic::HoldExpiring => ['hold_id', 'member_id', 'slot_id', 'expires_at'],
-            OutboxTopic::ReservationConfirmed => ['reservation_id', 'member_id', 'slot_id', 'venue_id', 'starts_at', 'party_size', 'min_spend_cents', 'currency'],
-            OutboxTopic::WalletUpdated => ['member_id', 'currency', 'credit_cents', 'coupon_cents'],
-        };
-
-        /** @var array<string, mixed> $filtered */
-        $filtered = [];
-        foreach ($keys as $key) {
-            if (array_key_exists($key, $payload)) {
-                $filtered[$key] = $payload[$key];
-            }
+        foreach ($deadLettered as $row) {
+            Log::critical($row['reason'], ['outbox_id' => $row['id'], 'error' => $row['error']]);
         }
 
-        return $filtered;
+        return $published;
     }
 
     private function deadLetter(OutboxEvent $row, Throwable $exception): void
@@ -98,6 +93,5 @@ class PublishOutboxBatch
         $row->attempts = (int) config('realtime.outbox.max_attempts', 5);
         $row->last_error = mb_substr($exception->getMessage(), 0, 4000);
         $row->save();
-        Log::critical('Realtime outbox row could not be mapped and was dead-lettered.', ['outbox_id' => $row->id, 'error' => $row->last_error]);
     }
 }
