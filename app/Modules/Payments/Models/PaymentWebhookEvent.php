@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Payments\Models;
 
 use App\Modules\Payments\Database\Factories\PaymentWebhookEventFactory;
+use App\Shared\Support\Timestamps;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -30,7 +31,7 @@ final class PaymentWebhookEvent extends Model
 
     protected $guarded = [];
 
-    protected $dateFormat = 'Y-m-d H:i:s.uP';
+    protected $dateFormat = Timestamps::FORMAT;
 
     protected static function newFactory(): PaymentWebhookEventFactory
     {

@@ -15,6 +15,7 @@ use App\Modules\Payments\Exceptions\PaymentDeclinedException;
 use App\Modules\Payments\Exceptions\PaymentInProgressException;
 use App\Modules\Payments\Exceptions\PaymentTimeoutException;
 use App\Modules\Payments\Models\Payment;
+use App\Shared\Support\Timestamps;
 use App\Shared\Support\Transactions;
 use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
@@ -42,7 +43,7 @@ class AuthorizePayment
         }
 
         $key = "hold:{$input->holdId}:auth";
-        $now = now()->utc()->format('Y-m-d H:i:s.uP');
+        $now = now()->utc()->format(Timestamps::FORMAT);
 
         $inserted = Payment::query()->insertOrIgnore([
             'member_id' => $input->memberId,

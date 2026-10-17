@@ -9,6 +9,7 @@ use App\Modules\Payments\Exceptions\InvalidWebhookSignatureException;
 use App\Modules\Payments\Jobs\RefundPayment;
 use App\Modules\Payments\Models\Payment;
 use App\Modules\Payments\Models\PaymentWebhookEvent;
+use App\Shared\Support\Timestamps;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
@@ -43,7 +44,7 @@ final class HandleWebhook
                 'type' => $event['type'],
                 'provider_ref' => $event['provider_ref'],
                 'payload' => json_encode($event['payload'], JSON_THROW_ON_ERROR),
-                'created_at' => now()->utc()->format('Y-m-d H:i:s.uP'),
+                'created_at' => now()->utc()->format(Timestamps::FORMAT),
             ]);
 
             if ($inserted === 0) {
@@ -62,7 +63,7 @@ final class HandleWebhook
                 PaymentWebhookEvent::query()
                     ->where('provider', self::PROVIDER)
                     ->where('event_id', $event['id'])
-                    ->update(['processed_at' => now()->utc()->format('Y-m-d H:i:s.uP')]);
+                    ->update(['processed_at' => now()->utc()->format(Timestamps::FORMAT)]);
             }
 
             return false;

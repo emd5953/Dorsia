@@ -7,6 +7,7 @@ namespace App\Modules\Payments\Console;
 use App\Modules\Payments\Actions\VoidPayment;
 use App\Modules\Payments\Enums\PaymentStatus;
 use App\Modules\Payments\Models\Payment;
+use App\Shared\Support\Timestamps;
 use Illuminate\Console\Command;
 
 final class ReapPayments extends Command
@@ -17,7 +18,7 @@ final class ReapPayments extends Command
 
     public function handle(VoidPayment $voidPayment): int
     {
-        $pendingBefore = now()->subSeconds((int) config('payments.reap.pending_after_seconds', 120))->utc()->format('Y-m-d H:i:s.uP');
+        $pendingBefore = now()->subSeconds((int) config('payments.reap.pending_after_seconds', 120))->utc()->format(Timestamps::FORMAT);
         Payment::query()
             ->where('status', PaymentStatus::Pending->value)
             ->where('created_at', '<', $pendingBefore)
@@ -25,7 +26,7 @@ final class ReapPayments extends Command
 
         $orphanBefore = now()->subSeconds(
             (int) config('inventory.hold_ttl_seconds', 300) + (int) config('payments.reap.orphan_grace_seconds', 120),
-        )->utc()->format('Y-m-d H:i:s.uP');
+        )->utc()->format(Timestamps::FORMAT);
 
         Payment::query()
             ->where('status', PaymentStatus::Authorized->value)

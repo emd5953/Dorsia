@@ -8,6 +8,7 @@ use App\Modules\Payments\Data\PaymentData;
 use App\Modules\Payments\Database\Factories\PaymentFactory;
 use App\Modules\Payments\Enums\PaymentStatus;
 use App\Shared\Money\Money;
+use App\Shared\Support\Timestamps;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -33,7 +34,7 @@ final class Payment extends Model
 
     protected $guarded = [];
 
-    protected $dateFormat = 'Y-m-d H:i:s.uP';
+    protected $dateFormat = Timestamps::FORMAT;
 
     protected static function newFactory(): PaymentFactory
     {
