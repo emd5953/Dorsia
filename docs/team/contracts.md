@@ -352,6 +352,7 @@ System accounts: `(system, 0, cash, USD)` = **card clearing**; `(system, 0, plat
 | idempotency_key | varchar(255) not null | unique |
 | currency | char(3) not null | |
 | metadata | jsonb not null default `'{}'` | |
+| created_xid | xid8 not null default `pg_current_xact_id()` | top-level transaction that created the row; immutable (append-only trigger) |
 | created_at | timestamptz not null | |
 
 Index `(reference_type, reference_id)`.
@@ -373,6 +374,8 @@ Index `(account_id)`, index `(transaction_id)`.
 1. `ledger_entries_balanced`: `CREATE CONSTRAINT TRIGGER ... AFTER INSERT ON ledger_entries DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION ledger_assert_balanced()`. The function raises `ledger transaction % does not balance` unless, for `NEW.transaction_id`: `SUM(amount_cents) = 0`, `COUNT(*) >= 2`, and every entry's account currency equals the transaction currency.
 2. `ledger_transactions_have_entries`: deferred constraint trigger `AFTER INSERT ON ledger_transactions` raising unless the transaction has at least 2 entries at commit.
 3. `ledger_append_only`: `BEFORE UPDATE OR DELETE` row trigger on `ledger_entries` and `ledger_transactions` that raises `ledger is append-only`. (TRUNCATE is deliberately not blocked so concurrency tests can truncate.)
+4. `ledger_entries_same_xact`: `BEFORE INSERT` row trigger on `ledger_entries` raising unless the parent `ledger_transactions.created_xid = pg_current_xact_id()`. Entries can only be added in the database transaction that created their ledger transaction, so a committed transaction can never gain entries later. `pg_current_xact_id()` returns the top-level xid (also inside savepoints) as a 64-bit `xid8`, so it is safe across xid wraparound; do not use `xmin`.
+5. `ledger_accounts_identity_immutable`: `BEFORE UPDATE` row trigger on `ledger_accounts` raising if `owner_type`, `owner_id`, `kind` or `currency` change (only `balance_cents` and `updated_at` may be updated), and `BEFORE DELETE` raising always.
 
 Because Feature tests run inside a transaction that is rolled back (deferred triggers never fire), `tests/Pest.php` runs `SET CONSTRAINTS ALL IMMEDIATE` at the start of every Feature test. **All entries of one ledger transaction must therefore be inserted in a single multi-row `INSERT` statement**; that is required in production code too.
 
