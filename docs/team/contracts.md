@@ -823,7 +823,7 @@ final class GatewayTimeoutException extends \RuntimeException {}
 
 | Action | Signature | Txn | Behavior | Throws |
 | --- | --- | --- | --- | --- |
-| `AuthorizePayment` | `__construct(PaymentGateway $gateway)`<br>`handle(AuthorizePaymentInput $input): PaymentData` | No txn | Idempotency key `hold:{holdId}:auth`. `INSERT ... ON CONFLICT DO NOTHING` a `pending` row. If it already existed: `authorized`/`captured` with same amount → return it; `pending` → `PaymentInProgressException`; `failed` → rethrow `PaymentDeclinedException` with stored code; `timed_out` → `PaymentTimeoutException`; different amount → `PaymentConflictException`. Otherwise calls `gateway->authorize()` with the same key and `metadata.payment_id`. Authorized → status `authorized`, store `provider_ref`. Declined → `failed`, `decline_code`, throw declined. Timeout → `timed_out`, throw timeout. | `PaymentDeclinedException`, `PaymentTimeoutException`, `PaymentInProgressException`, `PaymentConflictException` |
+| `AuthorizePayment` | `__construct(PaymentGateway $gateway)`<br>`handle(AuthorizePaymentInput $input): PaymentData` | No txn | Idempotency key `hold:{holdId}:auth`. `INSERT ... ON CONFLICT DO NOTHING` a `pending` row. If it already existed: `authorized`/`captured` with same amount → return it; `pending` → `PaymentInProgressException`; `failed` → rethrow `PaymentDeclinedException` with stored code; `timed_out` → `PaymentTimeoutException`; `refunded` or `capture_failed` → `PaymentConflictException`. The amount is compared first: a different amount → `PaymentConflictException` whatever the status. Otherwise calls `gateway->authorize()` with the same key and `metadata.payment_id`. Authorized → status `authorized`, store `provider_ref`. Declined → `failed`, `decline_code`, throw declined. Timeout → `timed_out`, throw timeout. | `PaymentDeclinedException`, `PaymentTimeoutException`, `PaymentInProgressException`, `PaymentConflictException` |
 | `MarkPaymentForCapture` | `handle(int $paymentId, int $reservationId): void` | Requires txn | `UPDATE payments SET reservation_id = :r WHERE id = :id AND reservation_id IS NULL AND status = 'authorized'`; 0 rows → throw. Dispatches `Jobs\CapturePayment` with `->afterCommit()`. | `PaymentConflictException` |
 | `VoidPayment` | `__construct(PaymentGateway $gateway)`<br>`handle(int $paymentId): void` | Own short txn, gateway call after it | Claims the payment with `UPDATE ... SET status = 'refunded' WHERE id = :id AND status = 'authorized' AND reservation_id IS NULL`; 0 rows → no-op (already attached, voided, failed or timed out). After commit calls `gateway->refund()` with key `payment:{id}:void`; on failure or timeout dispatches `Jobs\RefundPayment` (tries 5). Safe to call repeatedly. Because both this and `MarkPaymentForCapture` are conditional updates, a payment is either captured for one reservation or voided, never both. | — |
 
@@ -1118,7 +1118,7 @@ Example: base 25000, Saturday 20:00, no signals → 37500 per person, 75000 for 
 | `tok_insufficient_funds` | Declined `insufficient_funds` | — |
 | `tok_timeout` | records the charge as authorized provider-side, then throws `GatewayTimeoutException` | — |
 | `tok_capture_fail` | Authorized | Failed |
-| `tok_dup_webhook` | Authorized, and every webhook for this charge is emitted twice | Captured |
+| `tok_dup_webhook` | Authorized, and every webhook for this charge is emitted twice, even when `emit_webhooks` is off | Captured |
 | anything else | Declined `invalid_token` | — |
 
 **Programmatic knobs** (tests; call on `app(PaymentGateway::class)`, which is the singleton): `declineNext(string $code = 'card_declined'): void`, `timeoutNext(): void`, `failNextCapture(): void`, `emitWebhooks(bool $on = true): void`, `duplicateWebhooks(bool $on = true): void`, `latency(int $ms): void`. Inspection: `charges(): list<array<string, mixed>>`, `authorizeCalls(): int`, `assertChargedOnce(string $idempotencyKey): void`.
@@ -1141,7 +1141,7 @@ Example: base 25000, Saturday 20:00, no signals → 37500 per person, 75000 for 
 | Event | From | To / effect |
 | --- | --- | --- |
 | `payment.authorized` | `pending` | `authorized`, store `provider_ref` |
-| `payment.authorized` | `timed_out` | store `provider_ref`; dispatch `VoidPayment` after commit (orphaned auth) |
+| `payment.authorized` | `timed_out` | store `provider_ref`; dispatch `Jobs\RefundPayment` after commit (orphaned auth). Status stays `timed_out` until the refund succeeds, then `refunded` |
 | `payment.captured` | `authorized` | `captured` |
 | `payment.refunded` | `authorized`, `captured`, `timed_out` | `refunded` |
 | `payment.failed` | `pending` | `failed` |
@@ -1178,6 +1178,8 @@ Module config files are `app/Modules/<Name>/config.php`, merged under the lowerc
 | `pricing.min_per_person_cents` | 1000 | — | Pricing |
 | `payments.gateway` | `fake` | `PAYMENTS_GATEWAY` | Payments |
 | `payments.fake.*` | C§11 | C§11 | Payments |
+| `payments.reap.pending_after_seconds` | 120 | — | Payments |
+| `payments.reap.orphan_grace_seconds` | 120 | — | Payments |
 | `realtime.outbox.batch` | 100 | — | Realtime |
 | `realtime.outbox.sleep_ms` | 100 | — | Realtime |
 | `realtime.outbox.retention_days` | 7 | — | Realtime |
@@ -1199,6 +1201,7 @@ Registered by each module's provider `schedule()` hook. All use `->withoutOverla
 | `pricing:compute-demand-signals` | every 15 minutes | Pricing | C§10 |
 | `pricing:prune-search-events` | daily 04:00 UTC | Pricing | |
 | `wallet:reconcile` | daily 03:00 UTC | Wallet | |
+| `payments:reap` | every minute | Payments | `pending` payments older than `payments.reap.pending_after_seconds` (120) → `timed_out`; `authorized` payments with `reservation_id IS NULL` older than `hold_ttl + payments.reap.orphan_grace_seconds` (120) → `VoidPayment` |
 | `idempotency:prune` | daily 04:30 UTC | Platform | |
 | `realtime:prune-outbox` | daily 05:00 UTC | Realtime | |
 

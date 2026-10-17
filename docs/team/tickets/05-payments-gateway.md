@@ -46,6 +46,7 @@
 - [ ] Webhook: bad signature → 401 `invalid_signature`, nothing stored; valid event → 200 `{duplicate:false}` and transition applied; same `id` again → 200 `{duplicate:true}`, no change; every row of C§11's transition table covered, including no-op backward transitions (`payment.authorized` on a `captured` payment changes nothing); unknown payment → 200 and event stored.
 - [ ] `emitWebhooks(true)` + `duplicateWebhooks(true)` (and `tok_dup_webhook`) deliver each event twice through the real HTTP endpoint; the payment ends in the same state as with single delivery.
 - [ ] `payments.provider_ref` unique constraint rejects a duplicate via raw SQL.
+- [ ] `payments:reap` (scheduled every minute, C§13): a `pending` payment older than 120 s becomes `timed_out` (so a retry gets 504 `payment_timeout` instead of `payment_in_progress` forever); an `authorized` payment with no reservation older than hold TTL + 120 s is voided; younger rows and attached payments are untouched; a second run changes nothing.
 - [ ] Gates: `make ci`, `make arch`, `PaymentsContractTest`.
 
 ## Required tests
