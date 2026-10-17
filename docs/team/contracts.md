@@ -909,17 +909,17 @@ if n < 0 then redis.call('INCR', KEYS[1]); return -1 end   -- sold out
 return n
 ```
 
-Release is a Lua script that `INCR`s only if the key exists. Rebuild takes `Cache::store('redis')->lock("slot_gate:{id}:lock", inventory.gate.rebuild_lock_seconds)`, reads the slot fresh from Postgres, and `SET`s `capacity - booked_count - held_count` with TTL until `starts_at + 1 day`.
+Release is a Lua script that `INCR`s only if the key exists. Rebuild takes `Cache::store('redis')->lock("slot_gate:{id}:lock", inventory.gate.rebuild_lock_seconds)`, runs `ExpireOverdueHolds(slotId)` (each expiry commits its own transaction and its gate release is skipped, since the rebuild recomputes), then reads the slot fresh from Postgres and `SET`s `capacity - booked_count - held_count` with TTL until `starts_at + 1 day`.
 
 Steps:
 
 1. Load slot + venue by id (one query). Missing → `SlotNotFoundException`.
 2. Validate, in order: venue `active` and `starts_at > now()` else `SlotUnavailableException`; `released_at <= now()` else `DropNotOpenException` if `drop_id` set, otherwise `SlotUnavailableException`; `min_party_size <= party_size <= max_party_size` else `PartySizeNotAllowedException`.
-3. Gate acquire. `-1` → **overdue check**: at most once per slot per `inventory.gate.overdue_check_seconds` (5), guarded by Redis `SET slot_gate:{id}:overdue_check NX EX 5`, run one indexed query for active holds on the slot with `expires_at <= now()`; if any, expire them (which releases their units) and acquire once more. Otherwise (or if the guard is taken) → `SoldOutException` with no DB write. `-2` → rebuild; requests that lose the rebuild lock poll for the winner's key for at most `inventory.gate.rebuild_wait_ms` (200), then acquire once more; if still `-2`, continue without a gate unit (Postgres decides).
+3. Gate acquire. `-1` → **refresh check**: if `SET slot_gate:{id}:refresh 1 NX EX <inventory.gate.refresh_seconds>` (5) succeeds, run a gate rebuild (below; it expires the slot's overdue holds first) and acquire once more; if the guard is already set, or the second acquire is still `-1` → `SoldOutException` with no further DB write. So a wrong-low gate (overdue unswept holds, a crash after DECR, any drift) heals within 5 s of the next request, and a sold-out stampede costs at most one rebuild per slot per 5 s. `-2` → rebuild; requests that lose the rebuild lock poll for the winner's key for at most `inventory.gate.rebuild_wait_ms` (200), then acquire once more; if still `-2`, continue without a gate unit (Postgres decides).
    - A unique violation on `holds_one_active_per_member_slot` caused by the member's **own overdue** hold expires that hold and retries step 4 once before raising `ActiveHoldExistsException`.
 4. `DB::transaction`:
    - `UPDATE slots SET held_count = held_count + 1, updated_at = :now WHERE id = :id AND held_count + booked_count < capacity RETURNING *`.
-   - 0 rows → leave the transaction, run internal `ExpireOverdueHolds(slotId)` (expires active holds with `expires_at <= now()` on that slot), retry the transaction once. Still 0 rows → rebuild the gate (do not INCR) and throw `SoldOutException`.
+   - 0 rows → leave the transaction, run internal `ExpireOverdueHolds(slotId)` (expires active holds with `expires_at <= now()` on that slot), retry the transaction once. Still 0 rows → do not INCR; rebuild the gate only if the step-3 refresh guard can be taken (same key, same 5 s), and throw `SoldOutException`.
    - Insert the hold (`expires_at = now() + hold_ttl_seconds`), outbox `slot.held`, call `$inTransaction(HoldData)`.
 5. Errors after a gate unit was taken (other than step 4's sold-out path) release the unit after rollback. Unique violation on `holds.idempotency_key` → release the unit and return the existing hold (replay). Unique violation on `holds_one_active_per_member_slot` → release the unit and throw `ActiveHoldExistsException`.
 
@@ -927,7 +927,7 @@ Postgres is the final word: a counter that is too high only lets extra requests 
 
 **Hold expiry.** `now() >= expires_at` means expired. Enforced lazily by `GetHold` and `ConvertHoldToBooking`, and by the `inventory:expire-holds` sweeper (C§13). Expiry and release restore `held_count`, write `slot.released` and release the gate unit after commit, in that order.
 
-**Counter rebuild sweep.** The same every-minute sweeper rebuilds gates for slots with `starts_at > now()` and `updated_at >= now() - 2 minutes`, bounding any counter drift (e.g. a crash between commit and INCR) to about a minute.
+**Counter rebuild sweep.** The same every-minute sweeper also rebuilds gates for slots with `starts_at > now()` and `updated_at >= now() - 2 minutes` (tidies counters after commit-then-crash). Correctness of the sold-out signal does not depend on it: the step-3 refresh check heals any wrong-low gate within 5 s of a request, and an idle slot's gate is irrelevant (availability reads Postgres).
 
 ### C§6.2 Confirm (Reservations `ConfirmReservation`)
 
@@ -1172,7 +1172,7 @@ Module config files are `app/Modules/<Name>/config.php`, merged under the lowerc
 | `inventory.gate.rebuild_lock_seconds` | 5 | — | Inventory |
 | `inventory.gate.rebuild_recent_minutes` | 2 | — | Inventory |
 | `inventory.gate.rebuild_wait_ms` | 200 | — | Inventory |
-| `inventory.gate.overdue_check_seconds` | 5 | — | Inventory |
+| `inventory.gate.refresh_seconds` | 5 | — | Inventory |
 | `inventory.sweep_batch` | 500 | — | Inventory |
 | `reservations.cancel_window_hours` | 8 | `CANCEL_WINDOW_HOURS` | Reservations |
 | `wallet.late_cancel.member_bps` | 5000 | `LATE_CANCEL_MEMBER_BPS` | Wallet |
@@ -1370,7 +1370,7 @@ Recorded where the build plan is silent or ambiguous. Change only via the archit
 - **D16. No app-level rate limiting on booking routes.** §7 puts it at the edge; the k6 test hits the app directly.
 - **D17. Transaction assertions are relative to a base level.** `Transactions` keeps a static `$baseLevel` (0 in production). `Tests\TestCase::setUp()` sets it to `DB::transactionLevel()` after `RefreshDatabase` opens its wrapper transaction and resets it in `tearDown()`. `assertActive()` requires `level > base`; `assertNone()` requires `level <= base`. So the assertions mean the same thing in Feature tests as in production.
 - **D18. One active hold per member per slot.** Fairness in a drop; enforced by a partial unique index.
-- **D19. Lazy expiry is on hold reads, confirm and hold attempts, not on availability listings.** Availability shows `capacity - held - booked`; expired-but-unswept holds can make a slot *look* full for up to a minute. A hold attempt on a gate at 0 runs a rate-limited overdue check (C§6.1 step 3), so a drop-in from an expired hold is bookable within ~5 s rather than up to a minute (§6 drop-ins). The gate can still falsely report sold out for at most one sweep interval after a crash between commit and INCR.
+- **D19. Lazy expiry is on hold reads, confirm and hold attempts, not on availability listings.** Availability shows `capacity - held - booked`; expired-but-unswept holds can make a slot *look* full until the minute sweep. A hold attempt that the gate would shed runs the rate-limited refresh (C§6.1 step 3: expire overdue holds, recompute the gate), so a drop-in from an expired hold, a crash after DECR, or any other low drift is bookable within about 5 s of the next request (§6 drop-ins). A too-high gate is always safe (Postgres rejects).
 - **D20. Drop-in push notifications and tier-ordered "who hears first" are out of scope.** They need memberships (step 9) and a push provider (Expo). `slot.released` is still written and broadcast on the venue channel.
 - **D21. `drop.opened` is published by a minute scheduler**, so it may arrive up to 60 s after `opens_at`; bookability depends only on `released_at`. `drop.sold_out` fires when every slot in the drop is fully booked.
 - **D22. `IssueGoodwillCredit` exists as an action without an endpoint** so seeders and the E2E test can fund wallets; the admin endpoint is step 10.

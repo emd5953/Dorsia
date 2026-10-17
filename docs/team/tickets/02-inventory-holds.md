@@ -30,7 +30,7 @@ Pricing quotes (the hold's `quote` is `null` until ticket 06), confirm, cancel, 
 4. Public actions, DTOs, enums, exceptions, event exactly per C§5.1. `ConvertHoldToBooking` and `ReleaseBooking` are built and tested here even though 06 is their first caller.
 5. Internal `Support\ExpireOverdueHolds` (used by `HoldSlot` and the sweeper).
 6. Endpoints (Inventory routes): `GET /api/cities`, `/api/venues`, `/api/venues/{venue}`, `/api/venues/{venue}/availability`, `/api/slots/{slot}`, `/api/drops/{drop}` per C§8, with resource shapes exactly as listed. Availability dispatches `AvailabilitySearched` with venue-local date/hour.
-7. Reservations side: `PlaceHold` calls `HoldSlot` with no `$inTransaction` callback for now and returns `HoldView(hold, null)`; `GetHoldView`; `POST /api/holds` (middleware `auth:sanctum`, `idempotent`) → 201; `GET /api/holds/{hold}`.
+7. Reservations side: `HoldView` is declared exactly per C§5.6 with `public ?QuoteData $quote` (`App\Modules\Pricing\Data\QuoteData`, already on `build/v1`). `PlaceHold` calls `HoldSlot` with no `$inTransaction` callback for now and returns `HoldView(hold, null)`; ticket 06 fills the quote; `GetHoldView`; `POST /api/holds` (middleware `auth:sanctum`, `idempotent`) → 201; `GET /api/holds/{hold}`.
 8. Commands + schedule: `inventory:expire-holds`, `inventory:open-drops` (C§13).
 9. `Database/Seeders/InventorySeeder`: 4 cities (New York `America/New_York`, Chicago `America/Chicago`, Los Angeles `America/Los_Angeles`, Honolulu `Pacific/Honolulu`), 2 venues each (USD, `base_per_person_cents` between 15000 and 30000), and for each venue for the next 14 local days at local 18:00, 19:00, 20:00, 21:00, 22:00 three slots: 1–2 seats ×6, 3–4 seats ×4, 5–6 seats ×2, `released_at` = now. Plus one future drop at one NYC venue opening tomorrow 12:00 local, with its own three 20:00 slots on local day +15 (outside the regular 14 days, so the slots unique key is not violated). Deterministic (fixed names/slugs), re-runnable on `migrate:fresh --seed`.
 
@@ -42,7 +42,10 @@ Pricing quotes (the hold's `quote` is `null` until ticket 06), confirm, cancel, 
 - [ ] Capacity reached → 409 `sold_out` with **no** DB write (assert query count or no new rows) when the gate is warm.
 - [ ] Gate missing (Redis flushed) → rebuilt from Postgres on next hold, value correct, hold succeeds.
 - [ ] Gate too high (manually `SET` to 99 while the slot is full) → 409 `sold_out`, `held_count` unchanged, gate rebuilt to 0.
-- [ ] Gate too low (manually `SET` to 0 while the slot has room) → `sold_out` until the sweeper runs; after `inventory:expire-holds` the gate is rebuilt and holds succeed (documents D19 bound).
+- [ ] Gate too low (manually `SET` to 0 while the slot has 2 free tables, no sweeper run) → the next `POST /api/holds` takes the refresh guard, rebuilds the gate to 2 and succeeds (gate then 1); a request on a truly full slot within 5 s of a refresh issues no rebuild/overdue query (guard key `slot_gate:{id}:refresh` present) and gets `sold_out`.
+- [ ] Drop-in: slot full with gate 0 because of one overdue but unswept hold → a new member's `POST /api/holds` succeeds without the sweeper; the overdue hold is `expired` with one `slot.released` (`reason: "expired"`).
+- [ ] Crash simulation: acquire a gate unit via the Lua script and abandon it (no Postgres write) until the gate reads 0 with free tables → the next request heals it via the refresh check.
+- [ ] Gate rebuild expires the slot's overdue holds before recomputing (rebuild on a slot with an overdue hold yields `capacity - booked - held` after that hold's expiry).
 - [ ] Party size outside `[min, max]` → 422 `party_size_not_allowed` with `details.min_party_size/max_party_size`; no gate unit consumed.
 - [ ] Slot in the past or venue inactive → 409 `slot_unavailable`; slot in an unopened drop → 409 `drop_not_open`; at exactly `released_at` the hold succeeds.
 - [ ] Unknown slot → 404 `not_found`.

@@ -14,7 +14,7 @@
 ## Files you may touch
 
 - `app/Modules/Reservations/**`
-- `app/Modules/Inventory/**` — bug fixes, plus the gate-at-0 overdue check (C§6.1 step 3, D19) if ticket 02 did not ship it; no signature changes
+- `app/Modules/Inventory/**` — bug fixes only, plus the `HoldReleaseReason::ConfirmFailed` enum case; no signature changes
 - `tests/Modules/Reservations/**`, `tests/Modules/Inventory/**` (fixes), `tests/Arch/Contracts/ReservationsContractTest.php`
 - `tests/Modules/Reservations/Feature/EndToEndTest.php` (new)
 
@@ -55,7 +55,6 @@ Staff cancel override, compensation, overage settlement, no-show handling, reser
 - [ ] Cancel at or after `starts_at` → 409 `reservation_started`; cancel an already-cancelled reservation with a new key → 409 `reservation_not_cancellable`; cancel replay with the same key → identical 200.
 - [ ] `reservations.cancel_window_hours = 4` moves the boundary without code changes.
 - [ ] `GET /api/reservations` lists only the caller's reservations, newest `starts_at` first.
-- [ ] Drop-in: slot full with the gate at 0 and one hold overdue but unswept → a new member's `POST /api/holds` succeeds without running the sweeper; a second `sold_out` attempt within 5 s on a truly full slot issues no overdue query (guard key present).
 - [ ] `HoldView::$quote` typed `?QuoteData` (C§5.6) and always non-null after this ticket.
 - [ ] End-to-end test (one Pest test, real HTTP through the kernel): search availability → hold → confirm with wallet + card → cancel early → wallet shows the refund → hold again → confirm with wallet only → cancel late → final balances match §5 (member credit, venue_payable, platform, card clearing) and `wallet:reconcile` exits 0.
 - [ ] Gates: `make ci`, `make arch`, `ReservationsContractTest`.
