@@ -44,7 +44,9 @@ Staff cancel override, compensation, overage settlement, no-show handling, reser
 - [ ] Timeout → 504 `payment_timeout`; hold released with `reason: "payment_timeout"`.
 - [ ] Hold expired before confirm (at `expires_at` exactly) → 409 `hold_expired`; no payment authorized when detected in step 2; if expiry is detected inside the transaction, the authorization is voided and the hold expired. (Test seam: mock `Payments\Actions\AuthorizePayment` with a partial mock that calls the real `handle()` and then `$this->travelTo($hold->expiresAt)` before returning; action classes are non-final for this reason.)
 - [ ] Confirm someone else's hold → 404 `not_found`.
-- [ ] Wallet balance drained between plan and post → 409 `wallet_balance_changed`, authorization voided, hold still active.
+- [ ] Wallet balance drained between plan and post, **with a card portion** → 409 `wallet_balance_changed`, authorization voided, hold `released` with `close_reason = confirm_failed`, `slot.released` with `reason: "confirm_failed"`, gate +1; the member can immediately `POST /api/holds` again on the same slot and confirm successfully.
+- [ ] Wallet balance drained, **wallet-only plan** → 409 `wallet_balance_changed`, no payment, hold still active; a retry with a new key re-plans and (with a card token) succeeds.
+- [ ] Unexpected exception inside the confirm transaction after authorization (force one in a test) → 500, payment voided, hold released (`confirm_failed`).
 - [ ] Confirm replay (same key/body) → identical 201, `Idempotent-Replayed: true`, no new reservation, payment, ledger or outbox rows; different body → 422 `idempotency_mismatch`.
 - [ ] Second confirm of a converted hold with a different key → 409 `hold_not_active`.
 - [ ] Cancel at `starts_at − 8h` exactly → early: status `cancelled_early`, refund `credit_cents = min_spend`, `forfeited_cents = 0`; member credit +min_spend; `booked_count −1`; `slot.released` with `reason: "cancelled"`; gate +1.

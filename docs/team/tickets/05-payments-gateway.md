@@ -46,6 +46,10 @@
 - [ ] Webhook: bad signature → 401 `invalid_signature`, nothing stored; valid event → 200 `{duplicate:false}` and transition applied; same `id` again → 200 `{duplicate:true}`, no change; every row of C§11's transition table covered, including no-op backward transitions (`payment.authorized` on a `captured` payment changes nothing); unknown payment → 200 and event stored.
 - [ ] `emitWebhooks(true)` + `duplicateWebhooks(true)` (and `tok_dup_webhook`) deliver each event twice through the real HTTP endpoint; the payment ends in the same state as with single delivery.
 - [ ] `payments.provider_ref` unique constraint rejects a duplicate via raw SQL.
+- [ ] Any non-timeout `\Throwable` from `gateway->authorize()` (simulate with a gateway double throwing `RuntimeException`) → payment `timed_out`, `PaymentTimeoutException`, original logged at `error`; no row is left `pending`.
+- [ ] Webhook amount or currency differing from the payment's → event stored with `processed_at` null, no status change, `critical` log, 200.
+- [ ] `payment.captured` on a `pending` payment → `captured` with `provider_ref`; on a `timed_out` payment → `RefundPayment` dispatched, ends `refunded`.
+- [ ] A repeat `AuthorizePayment` for a hold whose payment was voided (`refunded`) still throws `PaymentConflictException` (the key is never reused; Reservations releases the hold instead, C§6.2 step 6 / D8).
 - [ ] `payments:reap` (scheduled every minute, C§13): a `pending` payment older than 120 s becomes `timed_out` (so a retry gets 504 `payment_timeout` instead of `payment_in_progress` forever); an `authorized` payment with no reservation older than hold TTL + 120 s is voided; younger rows and attached payments are untouched; a second run changes nothing.
 - [ ] Gates: `make ci`, `make arch`, `PaymentsContractTest`.
 

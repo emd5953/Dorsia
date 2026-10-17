@@ -264,7 +264,7 @@ CHECK `slots_not_overbooked CHECK (held_count + booked_count <= capacity)`. Uniq
 | expires_at | timestamptz not null | `created_at + inventory.hold_ttl_seconds` |
 | expiring_notified_at | timestamptz null | `hold.expiring` written |
 | closed_at | timestamptz null | CHECK `(status = 'active') = (closed_at IS NULL)` |
-| close_reason | varchar(32) null | `converted`, `expired`, `payment_failed`, `payment_timeout` |
+| close_reason | varchar(32) null | `converted`, `expired`, `payment_failed`, `payment_timeout`, `confirm_failed` |
 | created_at, updated_at | timestamptz | |
 
 Partial unique `holds_one_active_per_member_slot ON holds (slot_id, member_id) WHERE status = 'active'`. Partial index `(expires_at) WHERE status = 'active'`.
@@ -570,7 +570,7 @@ Every action is resolved from the container. Constructor dependencies listed her
 ```php
 namespace App\Modules\Inventory\Enums;
 enum HoldStatus: string { case Active = 'active'; case Converted = 'converted'; case Released = 'released'; case Expired = 'expired'; }
-enum HoldReleaseReason: string { case PaymentFailed = 'payment_failed'; case PaymentTimeout = 'payment_timeout'; }
+enum HoldReleaseReason: string { case PaymentFailed = 'payment_failed'; case PaymentTimeout = 'payment_timeout'; case ConfirmFailed = 'confirm_failed'; }
 
 namespace App\Modules\Inventory\Data;
 
@@ -823,7 +823,7 @@ final class GatewayTimeoutException extends \RuntimeException {}
 
 | Action | Signature | Txn | Behavior | Throws |
 | --- | --- | --- | --- | --- |
-| `AuthorizePayment` | `__construct(PaymentGateway $gateway)`<br>`handle(AuthorizePaymentInput $input): PaymentData` | No txn | Idempotency key `hold:{holdId}:auth`. `INSERT ... ON CONFLICT DO NOTHING` a `pending` row. If it already existed: `authorized`/`captured` with same amount → return it; `pending` → `PaymentInProgressException`; `failed` → rethrow `PaymentDeclinedException` with stored code; `timed_out` → `PaymentTimeoutException`; `refunded` or `capture_failed` → `PaymentConflictException`. The amount is compared first: a different amount → `PaymentConflictException` whatever the status. Otherwise calls `gateway->authorize()` with the same key and `metadata.payment_id`. Authorized → status `authorized`, store `provider_ref`. Declined → `failed`, `decline_code`, throw declined. Timeout → `timed_out`, throw timeout. | `PaymentDeclinedException`, `PaymentTimeoutException`, `PaymentInProgressException`, `PaymentConflictException` |
+| `AuthorizePayment` | `__construct(PaymentGateway $gateway)`<br>`handle(AuthorizePaymentInput $input): PaymentData` | No txn | Idempotency key `hold:{holdId}:auth`. `INSERT ... ON CONFLICT DO NOTHING` a `pending` row. If it already existed: `authorized`/`captured` with same amount → return it; `pending` → `PaymentInProgressException`; `failed` → rethrow `PaymentDeclinedException` with stored code; `timed_out` → `PaymentTimeoutException`; `refunded` or `capture_failed` → `PaymentConflictException`. The amount is compared first: a different amount → `PaymentConflictException` whatever the status. Otherwise calls `gateway->authorize()` with the same key and `metadata.payment_id`. Authorized → status `authorized`, store `provider_ref`. Declined → `failed`, `decline_code`, throw declined. `GatewayTimeoutException` **or any other `\Throwable` from the gateway call** → `timed_out` (log the original at `error`), throw `PaymentTimeoutException`; `payments:reap` and webhooks resolve the provider side. | `PaymentDeclinedException`, `PaymentTimeoutException`, `PaymentInProgressException`, `PaymentConflictException` |
 | `MarkPaymentForCapture` | `handle(int $paymentId, int $reservationId): void` | Requires txn | `UPDATE payments SET reservation_id = :r WHERE id = :id AND reservation_id IS NULL AND status = 'authorized'`; 0 rows → throw. Dispatches `Jobs\CapturePayment` with `->afterCommit()`. | `PaymentConflictException` |
 | `VoidPayment` | `__construct(PaymentGateway $gateway)`<br>`handle(int $paymentId): void` | Own short txn, gateway call after it | Claims the payment with `UPDATE ... SET status = 'refunded' WHERE id = :id AND status = 'authorized' AND reservation_id IS NULL`; 0 rows → no-op (already attached, voided, failed or timed out). After commit calls `gateway->refund()` with key `payment:{id}:void`; on failure or timeout dispatches `Jobs\RefundPayment` (tries 5). Safe to call repeatedly. Because both this and `MarkPaymentForCapture` are conditional updates, a payment is either captured for one reservation or voided, never both. | — |
 
@@ -933,7 +933,11 @@ Postgres is the final word: a counter that is too high only lets extra requests 
 3. `GetQuoteForHold`, `PlanSpend($memberId, $quote->amount)`.
 4. If `plan.card > 0`: `$cardToken` null → `CardRequiredException` (hold kept). Else `AuthorizePayment` (outside any transaction). On `PaymentDeclinedException` → `ReleaseHold(PaymentFailed)`, rethrow. On `PaymentTimeoutException` → `ReleaseHold(PaymentTimeout)`, rethrow. `PaymentInProgressException` / `PaymentConflictException` → rethrow (hold kept).
 5. `DB::transaction`: `ConvertHoldToBooking`; insert reservation (`status confirmed`, amounts from plan, `confirmed_at = now()`); `PostBookingPayment`; `MarkPaymentForCapture` if a payment exists; outbox `reservation.confirmed`.
-6. If step 5 throws: if a payment was authorized, `VoidPayment` (it only voids unattached payments, so a concurrent winner's payment is safe). If the cause was `HoldExpiredException`, call `ExpireHold` so the slot is restored. `InsufficientWalletBalanceException` keeps the hold. Rethrow.
+6. If step 5 throws:
+   - If the cause was `HoldExpiredException`: `VoidPayment` (if a payment was authorized), then `ExpireHold`. Rethrow.
+   - If the cause was `HoldNotActiveException` (a concurrent confirm won): `VoidPayment` (if any; it is a no-op on the winner's attached payment). Rethrow.
+   - Any other cause (including `InsufficientWalletBalanceException` and unexpected errors) **after a payment was authorized**: `VoidPayment`, then `ReleaseHold(ConfirmFailed)`, then rethrow. The per-hold payment key (`hold:{id}:auth`) is now spent on a refunded payment, so keeping the hold would lock the member out with `payment_conflict` until TTL; releasing it lets them hold again (new hold, new key).
+   - Any other cause **with no card payment** (wallet-only plan): keep the hold and rethrow; a retry with a new Idempotency-Key re-plans from current balances.
 
 ### C§6.3 Cancel (Reservations `CancelReservation`)
 
@@ -948,7 +952,7 @@ All payload timestamps are ISO 8601 UTC with `Z`, no fractional seconds. The pub
 | Topic (writer) | Payload | Channel (Laravel name / wire name) | Broadcast event name |
 | --- | --- | --- | --- |
 | `slot.held` (Inventory) | `{slot_id, venue_id, drop_id, starts_at, capacity, available, occurred_at}` | `venue.{venue_id}.slots` (public) | `slot.held` |
-| `slot.released` (Inventory) | same as `slot.held` plus `reason`: `expired`/`payment_failed`/`payment_timeout`/`cancelled` | `venue.{venue_id}.slots` | `slot.released` |
+| `slot.released` (Inventory) | same as `slot.held` plus `reason`: `expired`/`payment_failed`/`payment_timeout`/`confirm_failed`/`cancelled` | `venue.{venue_id}.slots` | `slot.released` |
 | `slot.booked` (Inventory) | same as `slot.held` | `venue.{venue_id}.slots` | `slot.booked` |
 | `drop.opened` (Inventory) | `{drop_id, venue_id, opens_at, slot_ids: int[]}` | `drop.{drop_id}` (public) | `drop.opened` |
 | `drop.sold_out` (Inventory) | `{drop_id, venue_id, sold_out_at}` | `drop.{drop_id}` | `drop.sold_out` |
@@ -1144,11 +1148,13 @@ Example: base 25000, Saturday 20:00, no signals → 37500 per person, 75000 for 
 | `payment.authorized` | `pending` | `authorized`, store `provider_ref` |
 | `payment.authorized` | `timed_out` | store `provider_ref`; dispatch `Jobs\RefundPayment` after commit (orphaned auth). Status stays `timed_out` until the refund succeeds, then `refunded` |
 | `payment.captured` | `authorized` | `captured` |
+| `payment.captured` | `pending` | `captured`, store `provider_ref` (capture implies authorization) |
+| `payment.captured` | `timed_out` | store `provider_ref`; dispatch `Jobs\RefundPayment` (status stays `timed_out` until refunded) |
 | `payment.refunded` | `authorized`, `captured`, `timed_out` | `refunded` |
 | `payment.failed` | `pending` | `failed` |
 | anything else | any | no-op (event still recorded) |
 
-Unknown payment → record the event, log `warning`, return 200. Webhooks never post ledger entries (the ledger posts at confirm; D9).
+Before any transition, `data.amount_cents` and `data.currency` must equal the payment's; on mismatch record the event (`processed_at` null), apply no transition, log `critical`, return 200 `{duplicate: false}` (never make the provider retry). Unknown payment → record the event, log `warning`, return 200. Webhooks never post ledger entries (the ledger posts at confirm; D9).
 
 ---
 
@@ -1350,7 +1356,7 @@ Recorded where the build plan is silent or ambiguous. Change only via the archit
 - **D5. Idempotency at two levels.** HTTP middleware on `(member, key)` replays responses; domain uniques (`holds.idempotency_key`, `reservations.idempotency_key`, `payments.idempotency_key`, `ledger_transactions.idempotency_key`, `reservations.hold_id`, `price_quotes.hold_id`) are the backstop. Header keys are scoped by member id before storage.
 - **D6. Replays store 4xx responses.** A first `sold_out` replays as `sold_out` (§4: "return the first result"). 5xx are not stored, so they can be retried.
 - **D7. Card is authorized before the confirm transaction and captured by a queued job after commit.** No network calls inside DB transactions. The payment idempotency key is per hold (`hold:{id}:auth`), so concurrent confirms on one hold can never create two authorizations.
-- **D8. Payment decline or timeout releases the hold** (§4 "Release hold: payment fails"). `wallet_balance_changed`, `card_required`, `payment_in_progress` keep it.
+- **D8. A spent payment releases the hold.** Decline, timeout, and any confirm failure after a card authorization (voided) release the hold (§4 "Release hold: payment fails"), because the per-hold payment key cannot be reused. `card_required`, `payment_in_progress`, and `wallet_balance_changed` on a wallet-only plan keep it. The payment key is never reused and a refunded payment is never re-authorized.
 - **D9. Ledger posts at confirm, not on capture/webhook.** The authorization guarantees the funds; a later capture failure is logged critical and left for staff (admin API is out of scope).
 - **D10. Sign convention.** Entry `amount_cents` positive = debit, negative = credit. `cash` (card clearing) is debit-normal; all others credit-normal. Member balances can never go negative (DB CHECK).
 - **D11. `bid_count` is always 0.** Custom requests are not in steps 1–8.
