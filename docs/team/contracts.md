@@ -112,7 +112,9 @@ All six providers are listed in `bootstrap/providers.php` by Platform in ticket 
 - No cross-module Eloquent relations, no cross-module `exists:` validation rules, no cross-module raw SQL. Cross-module references are plain `bigint` ids.
 - Foreign keys exist only within a module and to `members.id`.
 
-Tests and seeders are not subject to the boundary rule: they may use any module's factories and public actions.
+Only `tests/` and the root `database/seeders/` are exempt from the boundary rule; they may use any module's factories and public actions. Module `Database/Seeders` and `Database/Factories` live under `app/Modules` and **are** scanned like any other module code, so they may reach other modules only through public layers and the dependency table.
+
+The arch test's table scan is a case-insensitive text match over code and string literals (comments are stripped). Prose such as `"could not update payments"` or `"... from holds"` inside another module's code fails it, as does any mention of the `members` table outside Shared. Word messages and log lines so they don't put `from`/`join`/`into`/`update` directly before another module's table name.
 
 ---
 
@@ -1307,7 +1309,7 @@ All PHP commands run as `docker compose exec -T app ...`. CI (`.github/workflows
 - **Locations.** `tests/Modules/<Module>/Unit` (no DB), `.../Feature` (HTTP and action tests), `.../Concurrency` (parallel tests). Shared tests mirror that under `tests/Shared/`.
 - **Pest bootstrap (`tests/Pest.php`, Platform).**
   - `Unit`: `Tests\TestCase`, no DB trait.
-  - `Feature`: `Tests\TestCase` + `RefreshDatabase`; `beforeEach` runs `DB::statement('SET CONSTRAINTS ALL IMMEDIATE')` and `Redis::connection()->flushdb()`.
+  - `Feature`: `Tests\TestCase` + `RefreshDatabase`; `beforeEach` runs `DB::statement('SET CONSTRAINTS ALL IMMEDIATE')` and flushes Redis on both the `default` and `cache` connections (cache holds gate-rebuild locks and scheduler mutexes).
   - `Concurrency`: `Tests\TestCase` + `DatabaseTruncation`, `->group('concurrency')`; `beforeEach` flushes Redis (both test DBs).
   - `tests/Performance`: bound exactly like `Feature` (RefreshDatabase, immediate constraints, Redis flush).
   - If Pest's `in()` does not accept globs, Platform lists every module directory explicitly; module engineers never edit `Pest.php`.
@@ -1323,7 +1325,7 @@ All PHP commands run as `docker compose exec -T app ...`. CI (`.github/workflows
 
   Children send requests through the in-process HTTP kernel with a real Sanctum bearer token created before forking. Concurrency tests use **at least 20 parallel processes**, commit their fixtures (that is why they use `DatabaseTruncation`), and assert on database state afterwards, not only on responses.
 - **Idempotency tests.** Every write endpoint has (a) a same-key same-body replay test asserting identical status and body plus `Idempotent-Replayed: true`, (b) a same-key different-body test asserting 422 `idempotency_mismatch`, and (c) an assertion that the replay caused no extra rows (holds, payments, ledger entries, outbox rows).
-- **Factories and seeders.** Each module owns factories for its models in `Database/Factories` (models override `newFactory()`). Tests may use any module's factories. `DatabaseSeeder` (Platform) calls, if the class exists: `MemberSeeder`, `Inventory\Database\Seeders\InventorySeeder`, `Wallet\Database\Seeders\WalletSeeder`. `DropTestSeeder` is invoked only explicitly.
+- **Factories and seeders.** Each module owns factories for its models in `Database/Factories` (models override `newFactory()`). Tests and root seeders may use any module's factories; module factories and seeders obey C§2 boundaries. `DatabaseSeeder` (Platform) calls, if the class exists: `MemberSeeder`, `Inventory\Database\Seeders\InventorySeeder`, `Wallet\Database\Seeders\WalletSeeder`. `DropTestSeeder` is invoked only explicitly.
 - **Contract tests.** Each engineer adds `tests/Arch/Contracts/<Module>ContractTest.php` that uses reflection to assert every public class, method signature (parameter names, types, return type) and enum case listed in C§5 for that module. Eval gate 4 runs these.
 - **Fakes.** Use `Queue::fake()` / `Event::fake()` only where the assertion is "was dispatched". Never fake the database, Redis or the outbox writer.
 
