@@ -5,8 +5,13 @@ declare(strict_types=1);
 namespace App\Modules\Pricing\Support;
 
 use Carbon\CarbonImmutable;
+use OverflowException;
 
-/** C§10 steps 1-5. Pure integer math: basis points and cents only. */
+/**
+ * C§10 steps 1-5. Pure integer math: basis points and cents only.
+ *
+ * @throws OverflowException from calculate() when the base price would overflow int64 (about 3.5e10 cents).
+ */
 final class PriceCalculator
 {
     private const FORMULA_VERSION = 1;
@@ -67,8 +72,14 @@ final class PriceCalculator
         $selloutBps = $this->selloutBps($selloutSeconds);
         $demandBps = self::BPS + $unmetBps + $selloutBps;
 
+        $multiplier = $tierBps * $demandBps;
+
+        if ($basePerPersonCents > intdiv(PHP_INT_MAX - self::BPS * self::BPS * $this->roundingCents, $multiplier)) {
+            throw new OverflowException("Base price {$basePerPersonCents} is too large to price.");
+        }
+
         $divisor = self::BPS * self::BPS * $this->roundingCents;
-        $perPerson = intdiv($basePerPersonCents * $tierBps * $demandBps + intdiv($divisor, 2), $divisor) * $this->roundingCents;
+        $perPerson = intdiv($basePerPersonCents * $multiplier + intdiv($divisor, 2), $divisor) * $this->roundingCents;
         $perPerson = max($perPerson, $this->minPerPersonCents);
 
         return new PriceBreakdown($perPerson, [
