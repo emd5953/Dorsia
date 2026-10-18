@@ -35,3 +35,19 @@ Machine: Docker Desktop for macOS, Apple Silicon (`aarch64` Linux VM), 12 vCPUs,
 - `make setup`: passed with `BUILDX_CONFIG=/private/tmp/dorsia-buildx08` to keep Buildx activity files inside the writable temp area.
 - Seeder feature test: passed (20 assertions). Final `make ci`: passed (993 tests / 4,814 assertions, PHPStan clean, Pint 368 files). `make arch`: passed (106 tests / 900 assertions).
 - Required three consecutive 5,000-VU passing runs are blocked by the Docker Desktop VM memory cap. Run them on a Linux host/runner with enough memory and append the results here.
+
+## 2026-10-18 — 5,000-VU acceptance runs (k6 1.8.2 on the macOS host, app in Docker Desktop)
+
+k6 ran on the host (24 GB) because the k6 container was OOM-killed at ~1,600 VUs inside Docker Desktop's 7.75 GiB VM. Same script, data paths rewritten to the host path; `BASE_URL=http://localhost:8800`. Fresh `make drop-seed` before each run; `make drop-verify` after.
+
+| | Run 1 | Run 2 | Run 3 | §9 target |
+| --- | --- | --- | --- | --- |
+| Confirmed | 50 | 50 | 50 | exactly 50 |
+| Sold out (409) | 4,950 | 4,950 | 4,950 | clean |
+| 5xx / unexpected | 0 / 0 | 0 / 0 | 0 / 0 | 0 |
+| Ledger sum, unbalanced, drift | 0, 0, 0 | 0, 0, 0 | 0, 0, 0 | 0 |
+| `make drop-verify` | pass | pass | pass | pass |
+| Hold p95 | 297 ms | 63 ms | 83 ms | < 300 ms |
+| Confirm p95 | 566 ms | 325 ms | 373 ms | < 300 ms |
+
+Correctness passes 3/3. Confirm p95 misses 300 ms on this laptop (load generator, Docker VM and all services on one machine; run 1 cold). Per process.md's latency caveat, the reference latency run belongs on Linux; not yet profiled.
