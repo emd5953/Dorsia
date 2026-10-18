@@ -2,7 +2,7 @@
 
 Orchestrator state for the steps 1–8 build. Updated at every milestone so another orchestrator can take over. Process: [process.md](process.md). Tasks: `.claude/handoff/tasks/`.
 
-*Last updated: 2026-10-18 — Reservations eval r3 failed; mutation-proof rework launched*
+*Last updated: 2026-10-18 — Codex orchestrator handoff reconciled; k6-08 still running*
 
 ## Tickets
 
@@ -19,17 +19,16 @@ Orchestrator state for the steps 1–8 build. Updated at every milestone so anot
 
 ## Running
 
-- Reservations eval round 3 exited and failed at 88/100 because the five required mutation proofs were not completed. `make test-module M=Reservations` (102 tests), `make arch`, `make ci` (992 tests), and three concurrency repetitions all passed; no implementation defect was established. Report: `docs/team/evals/reservations-r3.md`.
-- Dispatched `reservations-r4` to complete/fix the five mutation-proof requirements in a disposable copy (post-authorization cleanup, decline/timeout release, exact cancellation boundary, replay, concurrency), proving each test fails under the mutation and passes after revert. Ticket 06 implementation changes, if needed, must stay within ticket-allowed files. No merge until a fresh independent eval passes all gates and scores >=90.
-- Ticket 08 remains gated on ticket 06 merge. Real-time live smoke is also pending after 06 merges.
+- Ticket 06 is merged by user decision after eval r3. Its five missing mutation proofs are deferred to the final product eval; do not rework or re-eval ticket 06 before then. The abandoned `reservations-r4` registry entry is marked done/cancelled.
+- Ticket 08 (`k6-08`, PID 83284) is active on `.claude/worktrees/k6-08`, branch `feat/k6-drop-test`; `kill -0 83284` confirmed it was alive during this handoff reconciliation. Its log shows `make setup` completed and implementation/validation work is in progress. No result file exists yet; no commit or eval can be started until it exits.
+- Ticket 07 live smoke remains to be demonstrated; it is included in the ticket 08 engineer brief.
 
 ## Next steps (for the Codex orchestrator)
 
-0. Docker: if `docker info` fails, `osascript -e 'quit app "Docker"'; sleep 10; open -a Docker`, wait, then `make up` in the worktree.
-1. Ticket 06 is MERGED. Do not rework or re-eval it. Its missing mutation proofs go into the final eval.
-2. Ticket 08 is running as task `k6-08` (worktree `.claude/worktrees/k6-08`). When it exits: commit its changes on `feat/k6-drop-test`, then launch an eval task (via codex-handoff.sh, never codex exec directly). Bar for 08: all hard gates pass and the §9 checks hold (exactly 50, 0 double bookings, 0 duplicate charges, ledger 0, no 5xx). If only p95 misses on Docker Desktop with a clean profile, that is a PASS with the latency caveat recorded. PASS → merge into build/v1.
-3. After 08 merges: final product eval per process.md (also covering ticket 06 mutation proofs) → `docs/team/final-eval.md`.
-4. Do NOT open the PR. Never push, never touch main.
+0. Continue watching PID 83284 with `kill -0`. When it exits, read `.claude/handoff/logs/k6-08.result.md`, commit only its worktree changes on `feat/k6-drop-test` (never `HANDOFF.md`), then launch the independent ticket 08 eval via `.claude/hooks/codex-handoff.sh`.
+1. Ticket 08 eval PASS requires all hard gates and §9 checks: exactly 50 confirmed, zero double bookings, zero duplicate charges, ledger sum zero, clean sold-out responses and no 5xx. If only p95 misses on Docker Desktop with a clean profile, report the measured number and latency caveat; PASS → merge into `build/v1` with `git merge --no-ff`.
+2. After 08 merges: run final product eval per process.md (including ticket 06 mutation proofs and the realtime live smoke) → `docs/team/final-eval.md`.
+3. Do NOT open the PR. Never push, never touch main.
 
 
 ## Deferred follow-ups
