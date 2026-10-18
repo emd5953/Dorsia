@@ -1,8 +1,11 @@
 name: drop-test
 
 # Reference run for the build plan §9 drop test on Linux: 5,000 virtual members, 50 tables, 3 runs.
-# Started by hand from the Actions tab (Run workflow) on build/v1.
+# Start it by pushing to the drop-test branch: git push origin build/v1:drop-test
+# (Run workflow in the Actions tab only works once this file is on main.)
 on:
+  push:
+    branches: [drop-test]
   workflow_dispatch:
     inputs:
       runs:
@@ -33,10 +36,10 @@ jobs:
         run: |
           set +e
           failed=0
-          for run in $(seq 1 "${{ inputs.runs }}"); do
+          for run in $(seq 1 "${{ inputs.runs || '3' }}"); do
             echo "::group::Run $run"
             make drop-seed || { failed=1; echo "::endgroup::"; continue; }
-            docker compose --profile loadtest run --rm -e DROP_VUS="${{ inputs.vus }}" k6 run /loadtest/drop.js | tee "loadtest/results/run$run.txt"
+            docker compose --profile loadtest run --rm -e DROP_VUS="${{ inputs.vus || '5000' }}" k6 run /loadtest/drop.js | tee "loadtest/results/run$run.txt"
             k6_status=${PIPESTATUS[0]}
             make drop-verify | tee -a "loadtest/results/run$run.txt"
             verify_status=${PIPESTATUS[0]}
