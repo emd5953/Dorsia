@@ -35,8 +35,9 @@ Continue from where the work stopped; don't redo finished work.
 
 TASK:
 $brief"
-  nohup codex exec -C "$wt" -s workspace-write -c sandbox_workspace_write.network_access=true \
-    -o "$LOGS/$id.result.md" "$prompt" > "$LOGS/$id.log" 2>&1 &
+  # Own session + no stdin: survives the launching shell (a Codex orchestrator kills its process group).
+  nohup perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' codex exec -C "$wt" -s workspace-write -c sandbox_workspace_write.network_access=true \
+    -o "$LOGS/$id.result.md" "$prompt" < /dev/null > "$LOGS/$id.log" 2>&1 &
   jq --arg pid "$!" --arg at "$(date -u +%FT%TZ)" '.engine="codex" | .codex_pid=$pid | .codex_started=$at' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
   log "launched codex for $id (pid $!)"
 }
