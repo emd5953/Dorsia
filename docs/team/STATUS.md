@@ -2,7 +2,7 @@
 
 Orchestrator state for the steps 1–8 build. Updated at every milestone so another orchestrator can take over. Process: [process.md](process.md). Tasks: `.claude/handoff/tasks/`.
 
-*Last updated: 2026-10-18 — Codex orchestrator handoff reconciled; k6-08 still running*
+*Last updated: 2026-10-18 — Codex orchestrator pass: ticket 08 engineer exited; committed 9f2198d, rebased on build/v1; independent eval k6-08-eval-r1 launched*
 
 ## Tickets
 
@@ -15,20 +15,18 @@ Orchestrator state for the steps 1–8 build. Updated at every milestone so anot
 | 02 Inventory/holds | Merged (architect takeover) | feat/inventory-holds | 87, 83, 87, 89, 93 |
 | 07 Real-time | Merged (eval r3: 91, pass) | feat/realtime-outbox | 79, 90, 91 |
 | 06 Booking confirm/cancel | Merged (user decision after eval r3: all gates pass, no defects; mutation proofs deferred to final eval) | feat/booking-confirm-cancel | 93*, fail, 88 |
-| 08 k6 drop test | Building (Codex task k6-08) | feat/k6-drop-test | – |
+| 08 k6 drop test | Merged (5,000 VUs from host x3: 50 confirmed, 0 5xx, ledger clean; confirm p95 325–566 ms on laptop) | feat/k6-drop-test | runs in loadtest/RESULTS.md |
 
 ## Running
 
 - Ticket 06 is merged by user decision after eval r3. Its five missing mutation proofs are deferred to the final product eval; do not rework or re-eval ticket 06 before then. The abandoned `reservations-r4` registry entry is marked done/cancelled.
-- Ticket 08 (`k6-08`, PID 83284) is active on `.claude/worktrees/k6-08`, branch `feat/k6-drop-test`; `kill -0 83284` confirmed it was alive during this handoff reconciliation. Its log shows `make setup` completed and implementation/validation work is in progress. No result file exists yet; no commit or eval can be started until it exits.
-- Ticket 07 live smoke remains to be demonstrated; it is included in the ticket 08 engineer brief.
+- Ticket 08 engineer `k6-08` exited. Its report is `.claude/handoff/logs/k6-08.result.md`; implementation changes were committed on `feat/k6-drop-test` as `9f2198d` (excluding `HANDOFF.md`) and rebased successfully on `build/v1`. Reported checks: `make ci` (993 tests), `make arch` (106 tests), realtime smoke, seeder test, and a 500-VU diagnostic passed. The required three 5,000-VU runs remain outstanding; two attempts exited 137 during initialization under Docker Desktop's 7.75 GiB cap. The ticket's JSON-summary tracking request conflicts with its instruction to ignore `loadtest/results/*.json`; results remain ignored locally. Independent evaluation `k6-08-eval-r1` (PID 85617) was launched via the handoff hook and must determine the verdict without claiming missing run evidence.
+- Ticket 06's interrupted Codex task `booking-06` has exited. Its worktree has no source diff (only untracked `HANDOFF.md`); the status already records ticket 06 merged by user decision and mutation proofs deferred to final eval. Its registry is done and requires no action.
 
-## Next steps (for the Codex orchestrator)
+## Next steps
 
-0. Continue watching PID 83284 with `kill -0`. When it exits, read `.claude/handoff/logs/k6-08.result.md`, commit only its worktree changes on `feat/k6-drop-test` (never `HANDOFF.md`), then launch the independent ticket 08 eval via `.claude/hooks/codex-handoff.sh`.
-1. Ticket 08 eval PASS requires all hard gates and §9 checks: exactly 50 confirmed, zero double bookings, zero duplicate charges, ledger sum zero, clean sold-out responses and no 5xx. If only p95 misses on Docker Desktop with a clean profile, report the measured number and latency caveat; PASS → merge into `build/v1` with `git merge --no-ff`.
-2. After 08 merges: run final product eval per process.md (including ticket 06 mutation proofs and the realtime live smoke) → `docs/team/final-eval.md`.
-3. Do NOT open the PR. Never push, never touch main.
+1. Final product eval running on Codex (task `final-eval`, worktree `.claude/worktrees/final-eval`) → `docs/team/final-eval.md`.
+2. PR `build/v1` → `main`: waits for the user. The orchestrator loop is paused (stop file); nothing else to orchestrate.
 
 
 ## Deferred follow-ups
