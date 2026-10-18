@@ -2,7 +2,7 @@
 
 Orchestrator state for the steps 1–8 build. Updated at every milestone so another orchestrator can take over. Process: [process.md](process.md). Tasks: `.claude/handoff/tasks/`.
 
-*Last updated: 2026-10-18 — Codex orchestrator pass: handoff inventory checked. Ticket 08 rework `k6-08-r3` is committed as `e44ce8a` and rebased on `build/v1`. Independent eval `k6-08-eval-r3` remains active as PID 2622; its log shows mutation checks complete and a baseline 5,000-VU diagnostic in progress. No result report has been written yet. Linux workflow attempts 39136171200, 39136372732, and 39136564789 all failed before usable acceptance evidence (latest failed during the drop run). No new task is ready until the eval exits. Local engineer gates pass (`make ci`, `make arch`); local 5,000-VU confirm p95 303.75 ms misses the threshold.*
+*Last updated: 2026-10-18 — Codex orchestrator pass: ticket 08 eval r3 exited FAIL 90/100. `make ci`, `make arch`, and mutation probes passed. Linux acceptance remains unmet: run 39136564789 exited 137 before requests. Local 5,000-VU diagnostic completed with 50 confirmed, 0 errors, ledger reconciliation clean, but confirm p95 was 477.90 ms. Full report: `docs/team/evals/k6-r3.md`.*
 
 ## Tickets
 
@@ -20,21 +20,18 @@ Orchestrator state for the steps 1–8 build. Updated at every milestone so anot
 ## Running
 
 - Ticket 06 is merged by user decision after eval r3. Its five missing mutation proofs are deferred to the final product eval; do not rework or re-eval ticket 06 before then. The abandoned `reservations-r4` registry entry is marked done/cancelled.
-- Ticket 08 eval r2 exited with FAIL 88; the full report `docs/team/evals/k6-r2.md` is committed on `build/v1` as `684dfcd`. Its required Linux gate remains outstanding. The latest workflow run, 39136564789, completed with failure during Drop runs; it does not establish successful 5,000-VU acceptance. Earlier attempts 39136171200 and 39136372732 also failed during setup. No Linux booking, error-rate or latency results can be claimed. Rework `k6-08-r3` has exited, been committed as `e44ce8a`, and rebased on `build/v1`; its independent eval is running as PID 2622. The evaluator has completed mutation probes and is running a baseline local diagnostic; no result report exists yet.
+- Ticket 08 round-3 eval exited FAIL 90/100. Report `docs/team/evals/k6-r3.md` records passing local CI/arch and mutation probes, but Linux acceptance remains outstanding and local confirm p95 is 477.90 ms. The failed GitHub run produced no booking or latency evidence. No Linux result is inferred.
 - Ticket 06's interrupted Codex task `booking-06` has exited. Its worktree has no source diff (only untracked `HANDOFF.md`); the status already records ticket 06 merged by user decision and mutation proofs deferred to final eval. Its registry is done and requires no action.
 
 ## Next steps (for the Codex orchestrator)
 
-All 8 ticket implementations are merged. Ticket 08 round-2 eval failed and round-3 rework has been committed; round-3 independent eval is still running. Final eval (`docs/team/final-eval.md`) is NOT READY pending ticket 08 re-evaluation and successful Linux reference runs.
+All 8 ticket implementations are merged. Ticket 08 remains FAIL pending performance work and external Linux evidence; final eval remains NOT READY.
 
-Ticket 08 rework r2 committed at `8c1cc98`; its independent eval r2 is committed at `684dfcd` and FAIL 88. Rework r3 is active (PID 99148), launched through `.claude/hooks/codex-handoff.sh`. Its worktree handoff records a ticket-allowed k6 `SharedArray` change to avoid each VU retaining a separate 5,000-token array. The process was alive at this checkpoint and validation is pending. Wait for it to exit, then commit only its allowed changes (never `HANDOFF.md`) and launch an independent eval. The Linux acceptance evidence is still required; run 39136564789 on `drop-test` failed: all three runs exited 137 during VU initialization at approximately 3,733/5,000; each verifier got 0 confirmed reservations (expected 50). Artifacts are downloaded under `/tmp/dorsia-run-39136564789/drop-test-results/`. No latency or correctness result can be claimed from these failed runs.
-
-1. Wait for independent eval `k6-08-eval-r3` (PID 2622). It was alive at this checkpoint and has not written a result file. On exit, read its result, verify the report at `docs/team/evals/k6-r3.md`, and update STATUS.
-2. Ticket 08 still requires three successful Linux 5,000-VU runs, each with 50 confirmed, 0 5xx, passing verifier and confirm p95 <300 ms. This orchestrator cannot trigger a rerun without a push, which is prohibited; the user must push `build/v1:drop-test` or provide an adequately provisioned Linux host. Do not infer Linux results from local diagnostics.
-3. If all three runs pass, update `docs/team/final-eval.md` with the Linux reference, set READY FOR PR, create `docs/team/pr-description.md`, and commit on build/v1. Do not open the PR.
-4. If correctness passes but Linux confirm p95 is >=300 ms, launch a profiler/fix task through `codex-handoff.sh`, evaluate and merge it, then note that the user must push `build/v1:drop-test` to rerun CI. If setup fails, inspect failed logs, fix on build/v1, and note that the user must push.
+1. Launch ticket 08 round-4 profiling/rework through `.claude/hooks/codex-handoff.sh`. Keep implementation within ticket 08 allowed files; do not claim the Linux acceptance criterion without three successful Linux runs.
+2. Ticket 08 requires three successful Linux 5,000-VU runs, each with 50 confirmed, 0 5xx, passing verifier/reconcile, and confirm p95 <300 ms. The latest run, 39136564789, exited 137 before requests. The user must push `build/v1:drop-test` to rerun GitHub CI or provide an adequately provisioned Linux host; this orchestrator must not push.
+3. After round-4 rework, launch an independent eval. Merge only on PASS. If Linux evidence is still unavailable, keep the final product eval NOT READY and record the exact external dependency.
+4. Once acceptance passes, update `docs/team/final-eval.md`, create `docs/team/pr-description.md`, and commit on `build/v1`. Do not open a PR.
 5. Never push, never touch main, never open a PR.
-
 
 ## Deferred follow-ups
 
