@@ -1,0 +1,54 @@
+name: drop-test
+
+# Reference run for the build plan §9 drop test on Linux: 5,000 virtual members, 50 tables, 3 runs.
+# Started by hand from the Actions tab (Run workflow) on build/v1.
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: Number of drop runs
+        default: "3"
+      vus:
+        description: Virtual members per run
+        default: "5000"
+
+jobs:
+  drop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare environment
+        run: cp .env.example .env
+      - name: Raise open-file limit for 5,000 connections
+        run: |
+          echo "fs.file-max=200000" | sudo tee -a /etc/sysctl.conf
+          sudo sysctl -p
+      - name: Set up
+        run: make setup
+      - name: Machine
+        run: nproc; free -g; docker info --format '{{.NCPU}} CPUs, {{.MemTotal}} bytes'
+      - name: Drop runs
+        id: drop
+        run: |
+          set +e
+          failed=0
+          for run in $(seq 1 "${{ inputs.runs }}"); do
+            echo "::group::Run $run"
+            make drop-seed || { failed=1; echo "::endgroup::"; continue; }
+            docker compose --profile loadtest run --rm -e DROP_VUS="${{ inputs.vus }}" k6 run /loadtest/drop.js | tee "loadtest/results/run$run.txt"
+            k6_status=${PIPESTATUS[0]}
+            make drop-verify | tee -a "loadtest/results/run$run.txt"
+            verify_status=${PIPESTATUS[0]}
+            echo "run $run: k6 exit $k6_status, verify exit $verify_status" | tee -a loadtest/results/summary.txt
+            [ "$k6_status" -ne 0 ] || [ "$verify_status" -ne 0 ] && failed=1
+            echo "::endgroup::"
+          done
+          cat loadtest/results/summary.txt
+          exit $failed
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: drop-test-results
+          path: loadtest/results/
