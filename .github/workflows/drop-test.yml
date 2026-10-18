@@ -36,6 +36,7 @@ jobs:
         run: |
           set +e
           failed=0
+          mkdir -p loadtest/results
           for run in $(seq 1 "${{ inputs.runs || '3' }}"); do
             echo "::group::Run $run"
             make drop-seed || { failed=1; echo "::endgroup::"; continue; }
