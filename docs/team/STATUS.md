@@ -2,7 +2,7 @@
 
 Orchestrator state for the steps 1–8 build. Updated at every milestone so another orchestrator can take over. Process: [process.md](process.md). Tasks: `.claude/handoff/tasks/`.
 
-*Last updated: 2026-10-18 — Codex orchestrator pass: verified `k6-08-r3` PID 99148 is still alive (elapsed 7:55 at this pass). Its worktree `.claude/worktrees/k6-08` has pending edits to `loadtest/drop.js` and `loadtest/RESULTS.md`, plus untracked `HANDOFF.md` and `docs/team/evals/k6-r2.md`; HEAD remains `8c1cc98`. `.claude/handoff/logs/k6-08-r3.result.md` does not exist yet. No commit/eval launch is ready while the engineer is active. Linux 5,000-VU acceptance remains outstanding.*
+*Last updated: 2026-10-18 — Codex orchestrator pass: `k6-08-r3` exited and reported. Committed its allowlisted `loadtest/drop.js` and `loadtest/RESULTS.md` changes on `feat/k6-drop-test` as `e44ce8a`, rebased on `build/v1`. Independent round-3 eval is being launched. Engineer gates pass locally (`make ci`, `make arch`); Linux three-run acceptance is still absent, and local 5,000-VU confirm p95 303.75 ms misses the threshold.*
 
 ## Tickets
 
@@ -15,7 +15,7 @@ Orchestrator state for the steps 1–8 build. Updated at every milestone so anot
 | 02 Inventory/holds | Merged (architect takeover) | feat/inventory-holds | 87, 83, 87, 89, 93 |
 | 07 Real-time | Merged (eval r3: 91, pass) | feat/realtime-outbox | 79, 90, 91 |
 | 06 Booking confirm/cancel | Merged (user decision after eval r3: all gates pass, no defects; mutation proofs deferred to final eval) | feat/booking-confirm-cancel | 93*, fail, 88 |
-| 08 k6 drop test | Merged; eval r2 FAIL 88; rework r3 in progress | feat/k6-drop-test | 78, 88 (Linux hard criterion incomplete) |
+| 08 k6 drop test | Round-3 rework committed; independent eval pending | feat/k6-drop-test | 78, 88 (Linux hard criterion incomplete) |
 
 ## Running
 
@@ -29,8 +29,8 @@ All 8 ticket implementations are merged, but ticket 08 has failed its first inde
 
 Ticket 08 rework r2 committed at `8c1cc98`; its independent eval r2 is committed at `684dfcd` and FAIL 88. Rework r3 is active (PID 99148), launched through `.claude/hooks/codex-handoff.sh`. Its worktree handoff records a ticket-allowed k6 `SharedArray` change to avoid each VU retaining a separate 5,000-token array. The process was alive at this checkpoint and validation is pending. Wait for it to exit, then commit only its allowed changes (never `HANDOFF.md`) and launch an independent eval. The Linux acceptance evidence is still required; run 39136564789 on `drop-test` failed: all three runs exited 137 during VU initialization at approximately 3,733/5,000; each verifier got 0 confirmed reservations (expected 50). Artifacts are downloaded under `/tmp/dorsia-run-39136564789/drop-test-results/`. No latency or correctness result can be claimed from these failed runs.
 
-1. Wait for `k6-08-r3` to finish and inspect `.claude/handoff/logs/k6-08-r3.result.md`. If it exits, commit only ticket-allowed worktree changes (never `HANDOFF.md`), then launch an independent eval through `codex-handoff.sh`; the ticket cannot pass without successful Linux evidence.
-2. Run 39136564789 has finished and failed as recorded above. After ticket 08 rework and eval, a successful Linux workflow run is still required; record all three actual summaries, verifying 50 bookings, 0 5xx, passing verifier and confirm p95 <300 ms each. Do not infer Linux results from local diagnostics.
+1. Wait for independent eval `k6-08-eval-r3` (PID 2622). On exit, read its result, verify the report at `docs/team/evals/k6-r3.md`, and update STATUS.
+2. Ticket 08 still requires three successful Linux 5,000-VU runs, each with 50 confirmed, 0 5xx, passing verifier and confirm p95 <300 ms. This orchestrator cannot trigger a rerun without a push, which is prohibited; the user must push `build/v1:drop-test` or provide an adequately provisioned Linux host. Do not infer Linux results from local diagnostics.
 3. If all three runs pass, update `docs/team/final-eval.md` with the Linux reference, set READY FOR PR, create `docs/team/pr-description.md`, and commit on build/v1. Do not open the PR.
 4. If correctness passes but Linux confirm p95 is >=300 ms, launch a profiler/fix task through `codex-handoff.sh`, evaluate and merge it, then note that the user must push `build/v1:drop-test` to rerun CI. If setup fails, inspect failed logs, fix on build/v1, and note that the user must push.
 5. Never push, never touch main, never open a PR.
