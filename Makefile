@@ -15,7 +15,7 @@ setup:
 
 up:
 	docker compose up -d
-	docker compose up -d --wait app postgres redis reverb
+	docker compose up -d --wait app postgres redis
 
 down:
 	docker compose down
