@@ -58,6 +58,7 @@ it('declares the enums with exactly the C§5.1 cases', function (): void {
     ])->and(collect(HoldReleaseReason::cases())->mapWithKeys(fn (HoldReleaseReason $c): array => [$c->name => $c->value])->all())->toBe([
         'PaymentFailed' => 'payment_failed',
         'PaymentTimeout' => 'payment_timeout',
+        'ConfirmFailed' => 'confirm_failed',
     ]);
 
     expect((new ReflectionEnum(HoldStatus::class))->getBackingType()?->getName())->toBe('string')
