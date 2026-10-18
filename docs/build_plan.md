@@ -160,6 +160,10 @@ flowchart TB
 
 If Redis and Postgres ever disagree, Postgres wins and the counter is rebuilt from it; Redis only makes losing fast.
 
+- **Counter rebuild.** A missing or out-of-sync counter is rebuilt under a lock as capacity minus booked minus active holds.
+- **Hold expiry.** Enforced lazily on read and confirm, and swept every minute by the scheduler. Both paths restore the counter and write `slot.released` to the outbox.
+- **Idempotency key reuse.** The same key with the same body replays the first result; the same key with a different body is rejected with 422.
+
 ---
 
 ## 5. Wallet ledger
@@ -192,7 +196,7 @@ Examples use a table for 2 at a reported $500 per person ($1,000). Real minimums
 - A nightly job re-sums every account and alerts on any difference from the cache.
 - No-shows and underspend post nothing: the full minimum is already in venue_payable at booking, and the venue keeps it.
 
-The late-cancel split is a guess; Dorsia publishes the 50% forfeit, not who keeps it. The FAQ also says the member's 50% returns to the "Dorsia Wallet" rather than as dining credit; we post it as member credit until the difference is known.
+The late-cancel split is a guess, so it lives in config, not code; Dorsia publishes the 50% forfeit, not who keeps it. The FAQ also says the member's 50% returns to the "Dorsia Wallet" rather than as dining credit; we post it as member credit until the difference is known.
 
 ---
 

@@ -1,0 +1,82 @@
+x-php: &php
+  build: .
+  image: ${COMPOSE_PROJECT_NAME:-dorsia}-app
+  working_dir: /app
+  healthcheck:
+    disable: true
+  volumes:
+    - .:/app
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  app:
+    <<: *php
+    command: php artisan octane:frankenphp --host=0.0.0.0 --port=8000 --workers=${OCTANE_WORKERS:-auto} --max-requests=1000
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/up"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  worker:
+    <<: *php
+    command: php artisan queue:work redis --tries=5
+
+  scheduler:
+    <<: *php
+    command: php artisan schedule:work
+
+  outbox:
+    <<: *php
+    command: php artisan realtime:publish-outbox
+    restart: unless-stopped
+
+  reverb:
+    <<: *php
+    command: php artisan reverb:start --host=0.0.0.0 --port=8080
+    ports:
+      - "${REVERB_PORT:-8080}:8080"
+
+  postgres:
+    image: postgres:16.15-bookworm
+    command: ["postgres", "-c", "max_connections=200"]
+    environment:
+      POSTGRES_USER: dorsia
+      POSTGRES_PASSWORD: dorsia
+      POSTGRES_DB: dorsia
+    ports:
+      - "${FORWARD_DB_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dorsia -d dorsia"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7.4.11-bookworm
+    ports:
+      - "${FORWARD_REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  k6:
+    image: grafana/k6:1.8.2
+    profiles: [loadtest]
+    volumes:
+      - ./loadtest:/loadtest
+
+volumes:
+  postgres-data:
