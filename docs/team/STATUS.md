@@ -2,7 +2,7 @@
 
 Orchestrator state for the steps 1–8 build. Updated at every milestone so another orchestrator can take over. Process: [process.md](process.md). Tasks: `.claude/handoff/tasks/`.
 
-*Last updated: 2026-10-18 — takeover verified k6-08-r2 PID 95434 is still running; its worktree has staged rework changes; GitHub drop-test run 39136564789 remains in progress*
+*Last updated: 2026-10-18 — takeover pass: PID 95434 remains alive; GitHub run 39136564789 completed and failed all three 5,000-VU runs (k6 exit 137; verifier found 0 confirmed reservations); active rework worktree left untouched*
 
 ## Tickets
 
@@ -20,15 +20,17 @@ Orchestrator state for the steps 1–8 build. Updated at every milestone so anot
 ## Running
 
 - Ticket 06 is merged by user decision after eval r3. Its five missing mutation proofs are deferred to the final product eval; do not rework or re-eval ticket 06 before then. The abandoned `reservations-r4` registry entry is marked done/cancelled.
-- Ticket 08 independent evaluation `k6-08-eval-r1` exited; report `docs/team/evals/k6-r1.md` is committed on `build/v1` and `feat/k6-drop-test` as `fb45598`. Verdict FAIL 78: local CI and arch pass, but full 5,000-VU evidence and tracked compact JSON summaries are missing, and repeat runs may compare a fresh database with a cumulative fake-gateway Redis hash. Takeover check: PID 95434 is alive as the Codex rework process, and `feat/k6-drop-test` currently has staged changes to `.gitignore`, `Makefile`, `loadtest/README.md`, `loadtest/RESULTS.md`, and three small `loadtest/results/host-run*.json` summaries, plus untracked `HANDOFF.md`. Leave its worktree untouched until it exits. GitHub drop-test run 39136564789 on `drop-test` is still in progress (`drop` job active); do not claim results until it completes.
+- Ticket 08 independent evaluation `k6-08-eval-r1` exited; report `docs/team/evals/k6-r1.md` is committed on `build/v1` and `feat/k6-drop-test` as `fb45598`. Verdict FAIL 78: local CI and arch pass, but full 5,000-VU evidence and tracked compact JSON summaries are missing, and repeat runs may compare a fresh database with a cumulative fake-gateway Redis hash. Takeover check: PID 95434 is alive as the Codex rework process, and `feat/k6-drop-test` has staged changes to `.gitignore`, `Makefile`, `loadtest/README.md`, `loadtest/RESULTS.md`, and three small `loadtest/results/host-run*.json` summaries, plus untracked `HANDOFF.md`. Leave its worktree untouched until it exits. GitHub drop-test run 39136564789 completed with failure. Downloaded artifacts are in `/tmp/dorsia-run-39136564789/drop-test-results/`; summary reports k6 exit 137 and verifier exit 2 for runs 1–3. Each run initialized only about 3,733 of 5,000 VUs before termination, and each verifier reported `expected 50 confirmed reservations, got 0`. This is no valid Linux performance evidence; do not claim booking, error-rate or latency results.
 - Ticket 06's interrupted Codex task `booking-06` has exited. Its worktree has no source diff (only untracked `HANDOFF.md`); the status already records ticket 06 merged by user decision and mutation proofs deferred to final eval. Its registry is done and requires no action.
 
 ## Next steps (for the Codex orchestrator)
 
-All 8 ticket implementations are merged, but ticket 08 has failed its first independent eval and is in rework. Final eval (`docs/team/final-eval.md`) is NOT READY pending the Linux reference run and ticket 08 re-evaluation. GitHub run 39136564789 is in progress.
+All 8 ticket implementations are merged, but ticket 08 has failed its first independent eval and is in rework. Final eval (`docs/team/final-eval.md`) is NOT READY pending ticket 08 re-evaluation and successful Linux reference runs.
+
+The only active task is `k6-08-r2` (PID 95434), confirmed alive with `kill -0`; its staged changes are intentionally left untouched. Do not start its independent eval until it exits. GitHub run 39136564789 on `drop-test` is completed but failed: all three runs exited 137 during VU initialization at approximately 3,733/5,000; each verifier got 0 confirmed reservations (expected 50). Artifacts are downloaded under `/tmp/dorsia-run-39136564789/drop-test-results/`. No latency or correctness result can be claimed from these failed runs.
 
 1. Finish ticket 08 rework and run its independent eval. Current rework task: `k6-08-r2` in `.claude/handoff/tasks/` on `feat/k6-drop-test`.
-2. Watch GitHub run 39136564789 (`gh run watch 39136564789`); read its logs and download the three run summaries. Confirm 50 bookings, 0 5xx, successful verifier, and confirm p95 <300 ms for each. Do not infer Linux results from local diagnostics.
+2. Run 39136564789 has finished and failed as recorded above. After ticket 08 rework and eval, a successful Linux workflow run is still required; record all three actual summaries, verifying 50 bookings, 0 5xx, passing verifier and confirm p95 <300 ms each. Do not infer Linux results from local diagnostics.
 3. If all three runs pass, update `docs/team/final-eval.md` with the Linux reference, set READY FOR PR, create `docs/team/pr-description.md`, and commit on build/v1. Do not open the PR.
 4. If correctness passes but Linux confirm p95 is >=300 ms, launch a profiler/fix task through `codex-handoff.sh`, evaluate and merge it, then note that the user must push `build/v1:drop-test` to rerun CI. If setup fails, inspect failed logs, fix on build/v1, and note that the user must push.
 5. Never push, never touch main, never open a PR.
