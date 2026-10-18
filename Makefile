@@ -14,7 +14,8 @@ setup:
 	$(EXEC) php artisan migrate:fresh --seed --force
 
 up:
-	docker compose up -d --wait
+	docker compose up -d
+	docker compose up -d --wait app postgres redis reverb
 
 down:
 	docker compose down
