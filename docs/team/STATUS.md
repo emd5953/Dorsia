@@ -2,7 +2,7 @@
 
 Orchestrator state for the steps 1–8 build. Updated at every milestone so another orchestrator can take over. Process: [process.md](process.md). Tasks: `.claude/handoff/tasks/`.
 
-*Last updated: 2026-10-18 — ticket 08 rework k6-08-r2 launched (PID 95434); eval r1 FAIL 78 is committed as fb45598; Linux run 39136564789 still in progress*
+*Last updated: 2026-10-18 — takeover verified k6-08-r2 PID 95434 is still running; its worktree has staged rework changes; GitHub drop-test run 39136564789 remains in progress*
 
 ## Tickets
 
@@ -20,7 +20,7 @@ Orchestrator state for the steps 1–8 build. Updated at every milestone so anot
 ## Running
 
 - Ticket 06 is merged by user decision after eval r3. Its five missing mutation proofs are deferred to the final product eval; do not rework or re-eval ticket 06 before then. The abandoned `reservations-r4` registry entry is marked done/cancelled.
-- Ticket 08 independent evaluation `k6-08-eval-r1` exited; report `docs/team/evals/k6-r1.md` is committed on `build/v1` and `feat/k6-drop-test` as `fb45598`. Verdict FAIL 78: local CI and arch pass, but full 5,000-VU evidence and tracked compact JSON summaries are missing, and repeat runs may compare a fresh database with a cumulative fake-gateway Redis hash. Rework `k6-08-r2` (PID 95434) is running on the same feature branch to fix repeatability and summary handling, run available acceptance checks, and report any Linux-run dependency. GitHub drop-test run 39136564789 on `drop-test` is still in progress; do not claim results until it completes.
+- Ticket 08 independent evaluation `k6-08-eval-r1` exited; report `docs/team/evals/k6-r1.md` is committed on `build/v1` and `feat/k6-drop-test` as `fb45598`. Verdict FAIL 78: local CI and arch pass, but full 5,000-VU evidence and tracked compact JSON summaries are missing, and repeat runs may compare a fresh database with a cumulative fake-gateway Redis hash. Takeover check: PID 95434 is alive as the Codex rework process, and `feat/k6-drop-test` currently has staged changes to `.gitignore`, `Makefile`, `loadtest/README.md`, `loadtest/RESULTS.md`, and three small `loadtest/results/host-run*.json` summaries, plus untracked `HANDOFF.md`. Leave its worktree untouched until it exits. GitHub drop-test run 39136564789 on `drop-test` is still in progress (`drop` job active); do not claim results until it completes.
 - Ticket 06's interrupted Codex task `booking-06` has exited. Its worktree has no source diff (only untracked `HANDOFF.md`); the status already records ticket 06 merged by user decision and mutation proofs deferred to final eval. Its registry is done and requires no action.
 
 ## Next steps (for the Codex orchestrator)
