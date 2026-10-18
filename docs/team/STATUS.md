@@ -20,14 +20,14 @@ Orchestrator state for the steps 1–8 build. Updated at every milestone so anot
 ## Running
 
 - Ticket 06 is merged by user decision after eval r3. Its five missing mutation proofs are deferred to the final product eval; do not rework or re-eval ticket 06 before then. The abandoned `reservations-r4` registry entry is marked done/cancelled.
-- Ticket 08 round-3 eval exited FAIL 90/100. Report `docs/team/evals/k6-r3.md` records passing local CI/arch and mutation probes, but Linux acceptance remains outstanding and local confirm p95 is 477.90 ms. The failed GitHub run produced no booking or latency evidence. No Linux result is inferred.
+- Ticket 08 round-3 eval exited FAIL 90/100. Report `docs/team/evals/k6-r3.md` records passing local CI/arch and mutation probes, but Linux acceptance remains outstanding and local confirm p95 is 477.90 ms. The failed GitHub run produced no booking or latency evidence. No Linux result is inferred. Round-4 task `k6-08-r4` is active as PID 4119 in `.claude/worktrees/k6-08`, launched through `.claude/hooks/codex-handoff.sh`; it will diagnose confirm latency within ticket 08 ownership and document cross-module findings without editing application code.
 - Ticket 06's interrupted Codex task `booking-06` has exited. Its worktree has no source diff (only untracked `HANDOFF.md`); the status already records ticket 06 merged by user decision and mutation proofs deferred to final eval. Its registry is done and requires no action.
 
 ## Next steps (for the Codex orchestrator)
 
 All 8 ticket implementations are merged. Ticket 08 remains FAIL pending performance work and external Linux evidence; final eval remains NOT READY.
 
-1. Launch ticket 08 round-4 profiling/rework through `.claude/hooks/codex-handoff.sh`. Keep implementation within ticket 08 allowed files; do not claim the Linux acceptance criterion without three successful Linux runs.
+1. Watch `k6-08-r4` (PID 4119). When it exits, read `.claude/handoff/logs/k6-08-r4.result.md`; commit allowed worktree changes only, never `HANDOFF.md`, then launch independent eval through the hook.
 2. Ticket 08 requires three successful Linux 5,000-VU runs, each with 50 confirmed, 0 5xx, passing verifier/reconcile, and confirm p95 <300 ms. The latest run, 39136564789, exited 137 before requests. The user must push `build/v1:drop-test` to rerun GitHub CI or provide an adequately provisioned Linux host; this orchestrator must not push.
 3. After round-4 rework, launch an independent eval. Merge only on PASS. If Linux evidence is still unavailable, keep the final product eval NOT READY and record the exact external dependency.
 4. Once acceptance passes, update `docs/team/final-eval.md`, create `docs/team/pr-description.md`, and commit on `build/v1`. Do not open a PR.
