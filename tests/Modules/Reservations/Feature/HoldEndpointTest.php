@@ -38,7 +38,9 @@ it('creates a hold: 201, the C§8 Hold shape with its quote, held_count + 1, one
         'max_party_size' => 2,
     ]);
 
-    $response = postHold(['slot_id' => $slot->id, 'party_size' => 2])->assertCreated();
+    $response = postHold(['slot_id' => $slot->id, 'party_size' => 2]);
+    expect($response->status())->toBe(201, 'Hold setup response: '.$response->getContent());
+    expect($response->json('data.id'))->toBeInt();
 
     $hold = Hold::query()->sole();
 
@@ -165,7 +167,9 @@ it('shows an active hold, hides it from other members, and 404s unknown ids', fu
 
 it('expires a hold on read: active at expires_at - 1s, expired exactly at expires_at with the slot restored', function (): void {
     $slot = Fixtures::slot(['capacity' => 3]);
-    $response = postHold(['slot_id' => $slot->id, 'party_size' => 2])->assertCreated();
+    $response = postHold(['slot_id' => $slot->id, 'party_size' => 2]);
+    expect($response->status())->toBe(201, 'Exact-expiry setup response: '.$response->getContent());
+    expect($response->json('data.id'))->toBeInt();
     $id = $response->json('data.id');
     $expiresAt = Hold::query()->findOrFail($id)->expires_at;
 

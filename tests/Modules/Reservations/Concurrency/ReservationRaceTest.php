@@ -20,6 +20,16 @@ function reservationRaceTokens(int $count): array
     return Member::factory()->count($count)->create()->map(fn (Member $member): string => Fixtures::token($member))->all();
 }
 
+/** @param array{status: int, json: array<mixed>} $response */
+function reservationRaceHoldId(array $response): int
+{
+    expect($response['status'])->toBe(201, 'Hold setup response: '.json_encode($response['json']));
+    expect(isset($response['json']['data']['id']))->toBeTrue('Hold setup response: '.json_encode($response['json']));
+    expect($response['json']['data']['id'])->toBeInt();
+
+    return $response['json']['data']['id'];
+}
+
 it('allows 20 parallel confirms of one hold to create one reservation and one charge', function (): void {
     $this->travelTo(CarbonImmutable::parse(Booking::NOW));
     $slot = Booking::slot();
@@ -28,8 +38,7 @@ it('allows 20 parallel confirms of one hold to create one reservation and one ch
         'method' => 'POST', 'uri' => '/api/holds', 'token' => $token,
         'body' => ['slot_id' => $slot->id, 'party_size' => 2], 'headers' => ['Idempotency-Key' => (string) Str::uuid()],
     ])[0];
-    expect($hold['status'])->toBe(201);
-    $holdId = (int) $hold['json']['data']['id'];
+    $holdId = reservationRaceHoldId($hold);
 
     $responses = Concurrency::requests(20, fn (int $i): array => [
         'method' => 'POST', 'uri' => '/api/reservations', 'token' => $token,
@@ -61,7 +70,7 @@ it('allows 20 parallel cancels of one reservation to post one refund', function 
     ])[0];
     $confirm = Concurrency::requests(1, fn (): array => [
         'method' => 'POST', 'uri' => '/api/reservations', 'token' => $token,
-        'body' => ['hold_id' => $hold['json']['data']['id'], 'card_token' => 'tok_ok'], 'headers' => ['Idempotency-Key' => (string) Str::uuid()],
+        'body' => ['hold_id' => reservationRaceHoldId($hold), 'card_token' => 'tok_ok'], 'headers' => ['Idempotency-Key' => (string) Str::uuid()],
     ])[0];
     expect($confirm['status'])->toBe(201);
     $reservationId = (int) $confirm['json']['data']['id'];
@@ -94,7 +103,7 @@ it('runs a capacity-5 hold and confirm race for 30 members with stable retry key
                 return ['hold_status' => $held['status'], 'confirm_status' => null];
             }
 
-            $holdId = (int) $held['json']['data']['id'];
+            $holdId = reservationRaceHoldId($held);
             $confirmed = Booking::call('POST', '/api/reservations', $token, ['hold_id' => $holdId, 'card_token' => 'tok_ok'], $confirmKey);
             if ($confirmed['status'] >= 500) {
                 $confirmed = Booking::call('POST', '/api/reservations', $token, ['hold_id' => $holdId, 'card_token' => 'tok_ok'], $confirmKey);
@@ -126,7 +135,7 @@ it('races confirm against the expiry sweeper at expires_at minus one second for 
             'method' => 'POST', 'uri' => '/api/holds', 'token' => $token,
             'body' => ['slot_id' => $slot->id, 'party_size' => 2], 'headers' => ['Idempotency-Key' => (string) Str::uuid()],
         ])[0];
-        $holdId = (int) $held['json']['data']['id'];
+        $holdId = reservationRaceHoldId($held);
         $expiry = Hold::query()->findOrFail($holdId)->expires_at;
         $this->travelTo($expiry->subSecond());
 
