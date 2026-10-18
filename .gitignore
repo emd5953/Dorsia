@@ -31,3 +31,5 @@ frankenphp
 frankenphp-worker.php
 /.claude/worktrees/
 /.claude/handoff/
+loadtest/.data/
+loadtest/results/*.json
