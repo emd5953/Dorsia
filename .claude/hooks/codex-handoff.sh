@@ -57,7 +57,7 @@ Read, in order: AGENTS.md, docs/team/process.md, docs/team/STATUS.md (current ph
 
 Your job, following process.md:
 - Tasks in $DIR/tasks/ with status active and engine codex are already running as Codex processes (codex_pid). Watch them (kill -0 pid). When one exits, read $LOGS/<id>.result.md, commit its worktree changes on its feature branch (never commit HANDOFF.md), and rebase it on build/v1.
-- Every finished engineer task needs an eval: run a separate codex exec as the eval agent with the module eval rubric from process.md (gates, mutation testing, score, PASS at all gates + >= 90). Write the report to docs/team/evals/<module>-r<N>.md.
+- Every finished engineer task needs an eval. LAUNCH RULE: never run `codex exec` yourself; anything you start directly is killed when your shell command ends. To start any agent, write a task file in $DIR/tasks/<id>.json ({id, worktree, status:"active", engine:"codex", brief}) and run $REPO/.claude/hooks/codex-handoff.sh <id>. The eval agent uses with the module eval rubric from process.md (gates, mutation testing, score, PASS at all gates + >= 90). Write the report to docs/team/evals/<module>-r<N>.md.
 - PASS: merge the branch into build/v1 with git merge --no-ff and mark the task done. FAIL: write a rework task file and launch it with $REPO/.claude/hooks/codex-handoff.sh <id>.
 - Start the next tickets when their dependencies are merged, per process.md Order.
 - Update docs/team/STATUS.md after every step, so the Claude orchestrator can take back over.
