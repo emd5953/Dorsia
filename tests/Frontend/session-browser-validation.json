@@ -1,0 +1,100 @@
+{
+  "verified_at": "2026-10-22T14:49:18.009Z",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 900
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844
+    }
+  },
+  "browser_checks": {
+    "auth_survives_reload": true,
+    "original_countdown_continues": true,
+    "selected_test_card_restored_on_desktop": true,
+    "mobile_expiry_not_revived": true,
+    "fresh_hold_after_expiry": true,
+    "confirmation_persists_after_reload": true,
+    "logout_survives_reload_both_sizes": true,
+    "mobile_no_horizontal_overflow": true,
+    "browser_errors": []
+  },
+  "api_checks": [
+    {
+      "device": "desktop",
+      "reservation": {
+        "id": 10,
+        "hold_id": 16,
+        "status": "cancelled_early",
+        "slot_id": 4,
+        "venue_id": 1,
+        "party_size": 2,
+        "starts_at": "2026-10-23T23:00:00Z",
+        "local_starts_at": "2026-10-23T19:00:00-04:00",
+        "min_spend_cents": 75000,
+        "currency": "USD",
+        "payment": {
+          "coupon_cents": 0,
+          "credit_cents": 50000,
+          "card_cents": 25000
+        },
+        "confirmed_at": "2026-10-22T14:42:33Z",
+        "cancelled_at": "2026-10-22T14:42:48Z"
+      },
+      "one_reservation_for_hold": true,
+      "slot": {
+        "id": 4,
+        "available": 6,
+        "capacity": 6
+      },
+      "wallet": {
+        "currency": "USD",
+        "credit_cents": 75000,
+        "coupon_cents": 0
+      }
+    },
+    {
+      "device": "mobile",
+      "reservation": {
+        "id": 13,
+        "hold_id": 20,
+        "status": "cancelled_early",
+        "slot_id": 7,
+        "venue_id": 1,
+        "party_size": 2,
+        "starts_at": "2026-10-24T00:00:00Z",
+        "local_starts_at": "2026-10-23T20:00:00-04:00",
+        "min_spend_cents": 75000,
+        "currency": "USD",
+        "payment": {
+          "coupon_cents": 0,
+          "credit_cents": 75000,
+          "card_cents": 0
+        },
+        "confirmed_at": "2026-10-22T14:48:41Z",
+        "cancelled_at": "2026-10-22T14:48:50Z"
+      },
+      "one_reservation_for_hold": true,
+      "slot": {
+        "id": 7,
+        "available": 6,
+        "capacity": 6
+      },
+      "wallet": {
+        "currency": "USD",
+        "credit_cents": 75000,
+        "coupon_cents": 0
+      }
+    },
+    {
+      "expired_hold": {
+        "id": 17,
+        "status": "expired",
+        "expires_at": "2026-10-22T14:48:16Z"
+      },
+      "no_booking_for_expired_hold": true
+    }
+  ]
+}

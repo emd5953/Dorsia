@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Reservations\Http\Resources;
 
 use App\Modules\Reservations\Data\ReservationData;
+use App\Modules\Reservations\Enums\ReservationStatus;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -36,6 +37,12 @@ final class ReservationResource extends JsonResource
                 'coupon_cents' => $reservation->payment->coupon->cents,
                 'credit_cents' => $reservation->payment->credit->cents,
                 'card_cents' => $reservation->payment->card->cents,
+            ],
+            'refund' => $reservation->status === ReservationStatus::Confirmed || $reservation->cancellationCredit === null ? null : [
+                'credit_cents' => $reservation->cancellationCredit->cents,
+                'forfeited_cents' => $reservation->minSpend->subtract($reservation->cancellationCredit)->cents,
+                'currency' => $reservation->cancellationCredit->currency->value,
+                'late' => $reservation->status === ReservationStatus::CancelledLate,
             ],
             'confirmed_at' => self::iso($reservation->confirmedAt),
             'cancelled_at' => $reservation->cancelledAt === null ? null : self::iso($reservation->cancelledAt),

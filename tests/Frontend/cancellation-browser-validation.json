@@ -1,0 +1,195 @@
+{
+  "verified_at": "2026-10-22T15:06:12.984Z",
+  "run": "mtq65go6jg",
+  "source": "Read-only API checks after CUA early/late cancellations",
+  "api_checks": [
+    {
+      "device": "desktop",
+      "bookings": [
+        {
+          "timing": "early",
+          "reservation": {
+            "id": 16,
+            "hold_id": 23,
+            "status": "cancelled_early",
+            "slot_id": 1687,
+            "venue_id": 1,
+            "party_size": 2,
+            "starts_at": "2026-10-23T22:59:16Z",
+            "local_starts_at": "2026-10-23T18:59:16-04:00",
+            "min_spend_cents": 60000,
+            "currency": "USD",
+            "payment": {
+              "coupon_cents": 0,
+              "credit_cents": 60000,
+              "card_cents": 0
+            },
+            "confirmed_at": "2026-10-22T14:59:16Z",
+            "cancelled_at": "2026-10-22T15:01:45Z"
+          },
+          "fixture_preview": {
+            "reservation_id": 16,
+            "refund": {
+              "credit_cents": 60000,
+              "forfeited_cents": 0,
+              "currency": "USD",
+              "late": false
+            },
+            "evaluated_at": "2026-10-22T14:59:16.182195Z",
+            "early_cancellation_deadline": "2026-10-23T14:59:16.113411Z",
+            "starts_at": "2026-10-23T22:59:16.113411Z",
+            "venue_timezone": "America/New_York",
+            "cancel_window_hours": 8
+          },
+          "slot": {
+            "id": 1687,
+            "available": 1,
+            "capacity": 1
+          },
+          "one_reservation_for_hold": true
+        },
+        {
+          "timing": "late",
+          "reservation": {
+            "id": 17,
+            "hold_id": 24,
+            "status": "cancelled_late",
+            "slot_id": 1688,
+            "venue_id": 1,
+            "party_size": 2,
+            "starts_at": "2026-10-22T16:59:16Z",
+            "local_starts_at": "2026-10-22T12:59:16-04:00",
+            "min_spend_cents": 50000,
+            "currency": "USD",
+            "payment": {
+              "coupon_cents": 0,
+              "credit_cents": 50000,
+              "card_cents": 0
+            },
+            "confirmed_at": "2026-10-22T14:59:16Z",
+            "cancelled_at": "2026-10-22T15:01:54Z"
+          },
+          "fixture_preview": {
+            "reservation_id": 17,
+            "refund": {
+              "credit_cents": 25000,
+              "forfeited_cents": 25000,
+              "currency": "USD",
+              "late": true
+            },
+            "evaluated_at": "2026-10-22T14:59:16.195134Z",
+            "early_cancellation_deadline": "2026-10-22T08:59:16.184319Z",
+            "starts_at": "2026-10-22T16:59:16.184319Z",
+            "venue_timezone": "America/New_York",
+            "cancel_window_hours": 8
+          },
+          "slot": {
+            "id": 1688,
+            "available": 1,
+            "capacity": 1
+          },
+          "one_reservation_for_hold": true
+        }
+      ],
+      "wallet": {
+        "currency": "USD",
+        "credit_cents": 175000,
+        "coupon_cents": 0
+      }
+    },
+    {
+      "device": "mobile",
+      "bookings": [
+        {
+          "timing": "early",
+          "reservation": {
+            "id": 18,
+            "hold_id": 25,
+            "status": "cancelled_early",
+            "slot_id": 1689,
+            "venue_id": 1,
+            "party_size": 2,
+            "starts_at": "2026-10-23T22:59:16Z",
+            "local_starts_at": "2026-10-23T18:59:16-04:00",
+            "min_spend_cents": 60000,
+            "currency": "USD",
+            "payment": {
+              "coupon_cents": 0,
+              "credit_cents": 60000,
+              "card_cents": 0
+            },
+            "confirmed_at": "2026-10-22T14:59:16Z",
+            "cancelled_at": "2026-10-22T15:05:10Z"
+          },
+          "fixture_preview": {
+            "reservation_id": 18,
+            "refund": {
+              "credit_cents": 60000,
+              "forfeited_cents": 0,
+              "currency": "USD",
+              "late": false
+            },
+            "evaluated_at": "2026-10-22T14:59:16.422311Z",
+            "early_cancellation_deadline": "2026-10-23T14:59:16.410581Z",
+            "starts_at": "2026-10-23T22:59:16.410581Z",
+            "venue_timezone": "America/New_York",
+            "cancel_window_hours": 8
+          },
+          "slot": {
+            "id": 1689,
+            "available": 1,
+            "capacity": 1
+          },
+          "one_reservation_for_hold": true
+        },
+        {
+          "timing": "late",
+          "reservation": {
+            "id": 19,
+            "hold_id": 26,
+            "status": "cancelled_late",
+            "slot_id": 1690,
+            "venue_id": 1,
+            "party_size": 2,
+            "starts_at": "2026-10-22T16:59:16Z",
+            "local_starts_at": "2026-10-22T12:59:16-04:00",
+            "min_spend_cents": 50000,
+            "currency": "USD",
+            "payment": {
+              "coupon_cents": 0,
+              "credit_cents": 50000,
+              "card_cents": 0
+            },
+            "confirmed_at": "2026-10-22T14:59:16Z",
+            "cancelled_at": "2026-10-22T15:05:26Z"
+          },
+          "fixture_preview": {
+            "reservation_id": 19,
+            "refund": {
+              "credit_cents": 25000,
+              "forfeited_cents": 25000,
+              "currency": "USD",
+              "late": true
+            },
+            "evaluated_at": "2026-10-22T14:59:16.431537Z",
+            "early_cancellation_deadline": "2026-10-22T08:59:16.422373Z",
+            "starts_at": "2026-10-22T16:59:16.422373Z",
+            "venue_timezone": "America/New_York",
+            "cancel_window_hours": 8
+          },
+          "slot": {
+            "id": 1690,
+            "available": 1,
+            "capacity": 1
+          },
+          "one_reservation_for_hold": true
+        }
+      ],
+      "wallet": {
+        "currency": "USD",
+        "credit_cents": 175000,
+        "coupon_cents": 0
+      }
+    }
+  ]
+}

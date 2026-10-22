@@ -7,4 +7,5 @@ use Illuminate\Support\Facades\Route;
 
 Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('/wallet', WalletController::class);
+    Route::get('/wallet/transactions', [WalletController::class, 'transactions']);
 });

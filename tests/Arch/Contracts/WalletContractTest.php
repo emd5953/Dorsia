@@ -2,11 +2,14 @@
 
 declare(strict_types=1);
 
+use App\Modules\Wallet\Actions\GetCancellationCredits;
 use App\Modules\Wallet\Actions\GetWalletBalance;
 use App\Modules\Wallet\Actions\IssueGoodwillCredit;
+use App\Modules\Wallet\Actions\ListWalletTransactions;
 use App\Modules\Wallet\Actions\PlanSpend;
 use App\Modules\Wallet\Actions\PostBookingPayment;
 use App\Modules\Wallet\Actions\PostCancellationRefund;
+use App\Modules\Wallet\Actions\PreviewCancellationRefund;
 use App\Modules\Wallet\Actions\ReconcileLedger;
 use App\Modules\Wallet\Data\BookingPaymentInput;
 use App\Modules\Wallet\Data\CancellationRefund;
@@ -16,6 +19,8 @@ use App\Modules\Wallet\Data\LedgerTransactionData;
 use App\Modules\Wallet\Data\ReconciliationReport;
 use App\Modules\Wallet\Data\SpendPlan;
 use App\Modules\Wallet\Data\WalletBalance;
+use App\Modules\Wallet\Data\WalletTransaction;
+use App\Modules\Wallet\Data\WalletTransactionPage;
 use App\Modules\Wallet\Enums\AccountKind;
 use App\Modules\Wallet\Enums\AccountOwnerType;
 use App\Modules\Wallet\Enums\LedgerTransactionType;
@@ -235,4 +240,24 @@ it('never calls SQL now() in Wallet application code (C§3)', function (): void 
     }
 
     expect($offenders)->toBe([]);
+});
+
+it('exposes the pure cancellation refund calculation through a public action', function (): void {
+    expectMethod(PreviewCancellationRefund::class, 'handle', ['amount' => 'App\\Shared\\Money\\Money', 'late' => 'bool'], CancellationRefund::class);
+});
+
+it('exposes posted cancellation credits through a member-scoped batch read', function (): void {
+    expectMethod(GetCancellationCredits::class, 'handle', ['memberId' => 'int', 'reservationIds' => 'array'], 'array');
+});
+
+it('exposes member wallet transaction history and its immutable page DTOs', function (): void {
+    expectMethod(ListWalletTransactions::class, 'handle', ['memberId' => 'int', 'beforeId' => '?int'], WalletTransactionPage::class);
+    expectDto(WalletTransactionPage::class, ['transactions' => 'array', 'nextBeforeId' => '?int']);
+    expectDto(WalletTransaction::class, [
+        'id' => 'int', 'type' => LedgerTransactionType::class, 'reservationId' => '?int', 'venueId' => '?int',
+        'amount' => 'App\\Shared\\Money\\Money', 'walletChangeCents' => 'int', 'credit' => 'App\\Shared\\Money\\Money',
+        'coupon' => 'App\\Shared\\Money\\Money', 'card' => 'App\\Shared\\Money\\Money', 'forfeited' => '?App\\Shared\\Money\\Money', 'occurredAt' => 'Carbon\\CarbonImmutable',
+    ]);
+    $route = Route::getRoutes()->match(Request::create('/api/wallet/transactions', 'GET'));
+    expect($route->gatherMiddleware())->toContain('auth:sanctum');
 });

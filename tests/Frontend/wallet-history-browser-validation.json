@@ -1,0 +1,96 @@
+{
+  "verified_at": "2026-10-22T15:51:51.369Z",
+  "origin": "http://127.0.0.1:4173",
+  "route": "#membership/wallet",
+  "method": "CUA browser interaction with the real local Laravel/Postgres backend",
+  "desktop": {
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "document_width": {
+      "client": 1265,
+      "scroll": 1265
+    },
+    "reservation_ids": [
+      16,
+      17
+    ],
+    "transactions": 5,
+    "payments_cents": [
+      60000,
+      50000
+    ],
+    "refunds_cents": [
+      60000,
+      25000
+    ],
+    "forfeited_cents": [
+      0,
+      25000
+    ],
+    "wallet_credit_cents": 175000,
+    "full_refresh_history_text_equal": true,
+    "signed_in_after_refresh": true
+  },
+  "mobile": {
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "document_width": {
+      "client": 375,
+      "scroll": 375
+    },
+    "reservation_ids": [
+      18,
+      19
+    ],
+    "transactions": 5,
+    "payments_cents": [
+      60000,
+      50000
+    ],
+    "refunds_cents": [
+      60000,
+      25000
+    ],
+    "forfeited_cents": [
+      0,
+      25000
+    ],
+    "wallet_credit_cents": 175000,
+    "full_refresh_history_text_equal": true,
+    "signed_in_after_refresh": true
+  },
+  "mobile_card": {
+    "reservation_ids": [
+      7,
+      13
+    ],
+    "transactions": 4,
+    "card_only_reservation": 7,
+    "payment_cents": 75000,
+    "card_cents": 75000,
+    "wallet_change_cents": 0,
+    "refund_cents": 75000,
+    "full_refresh_history_text_equal": true,
+    "refresh_button_history_text_equal": true
+  },
+  "account_switch_clears_prior_history": true,
+  "browser_warning_error_logs": [],
+  "new_booking_cancellation_wallet_writes": false,
+  "final_account": "demo@dorsia.test",
+  "final_wallet_credit_cents": 75000,
+  "viewport_override_reset": true,
+  "screenshots": [
+    "wallet-desktop-before-refresh.png",
+    "wallet-desktop-after-refresh.png",
+    "wallet-desktop-transactions.png",
+    "wallet-mobile-before-refresh.png",
+    "wallet-mobile-after-refresh.png",
+    "wallet-mobile-transactions.png",
+    "wallet-mobile-card.png"
+  ],
+  "coverage_limit": "Live browser checks did not induce a history outage or older-page retry; pagination and empty data covered by automated tests."
+}

@@ -13,6 +13,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('/reservations', [ReservationController::class, 'store'])->middleware('idempotent');
     Route::get('/reservations', [ReservationController::class, 'index']);
     Route::get('/reservations/{reservation}', [ReservationController::class, 'show'])->whereNumber('reservation');
+    Route::get('/reservations/{reservation}/cancellation-preview', [ReservationController::class, 'cancellationPreview'])->whereNumber('reservation');
     Route::post('/reservations/{reservation}/cancel', [ReservationController::class, 'cancel'])
         ->whereNumber('reservation')
         ->middleware('idempotent');

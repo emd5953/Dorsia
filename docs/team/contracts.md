@@ -746,6 +746,19 @@ final readonly class LedgerTransactionData
     public function __construct(public int $id, public LedgerTransactionType $type, public string $idempotencyKey, public Currency $currency, public array $entries, public CarbonImmutable $createdAt) {}
 }
 
+final readonly class WalletTransaction
+{
+    public function __construct(public int $id, public LedgerTransactionType $type,
+        public ?int $reservationId, public ?int $venueId, public Money $amount,
+        public int $walletChangeCents, public Money $credit, public Money $coupon,
+        public Money $card, public ?Money $forfeited, public CarbonImmutable $occurredAt) {}
+}
+final readonly class WalletTransactionPage
+{
+    /** @param list<WalletTransaction> $transactions */
+    public function __construct(public array $transactions, public ?int $nextBeforeId) {}
+}
+
 final readonly class WalletBalance
 {
     public function __construct(public int $memberId, public Money $credit, public Money $coupon) {}
@@ -764,7 +777,10 @@ final readonly class ReconciliationReport
 | `PlanSpend` | `handle(int $memberId, Money $amount): SpendPlan` | — | Coupon balance first, then credit, remainder card (§5 spend order). Read-only, no locks. | — |
 | `PostBookingPayment` | `__construct(Outbox $outbox, Support\PostTransaction $post)`<br>`handle(BookingPaymentInput $input): LedgerTransactionData` | Requires txn | Idempotency key `hold:{holdId}:booking`; replay returns the existing transaction. Locks member coupon/credit accounts `FOR UPDATE` (ascending id), re-checks balances ≥ plan amounts. Entries: debit member coupon `plan.coupon`, debit member credit `plan.credit`, debit system cash (card clearing) `plan.card`, credit venue_payable `plan.total()`; zero lines omitted. Writes `wallet.updated` if coupon or credit > 0. | `InsufficientWalletBalanceException` |
 | `PostCancellationRefund` | `__construct(Outbox $outbox, Support\PostTransaction $post)`<br>`handle(CancellationRefundInput $input): CancellationRefund` | Requires txn | Key `reservation:{reservationId}:cancel`; replay returns stored result. Early: debit venue_payable `amount`, credit member credit `amount`. Late: `member = amount.bps(wallet.late_cancel.member_bps)`, `platform = amount.bps(wallet.late_cancel.platform_bps)`; debit venue_payable `member + platform`, credit member credit `member`, credit platform `platform`; `venueRetained = amount - member - platform`. Zero legs are omitted (e.g. `platform_bps = 0` posts two lines). If `member + platform = 0`, no transaction is posted, `transactionId` is null, and no `wallet.updated` is written; otherwise writes `wallet.updated` if member credit moved. `PostTransaction` itself still rejects postings with fewer than two non-zero lines. | — |
+| `PreviewCancellationRefund` | `handle(Money $amount, bool $late): CancellationRefund` | None | Pure configured calculation using the same Wallet policy helper as posting; `transactionId = null`. No account, ledger, outbox or provider writes. | — |
 | `IssueGoodwillCredit` | `__construct(Outbox $outbox, Support\PostTransaction $post)`<br>`handle(int $memberId, Money $amount, string $idempotencyKey): LedgerTransactionData` | Own txn | Debit platform, credit member credit. No HTTP endpoint this run (seeders and tests only). | — |
+| `GetCancellationCredits` | `handle(int $memberId, array $reservationIds): array` (`list<int>` → `array<int, Money>`) | None | One batch read of posted cancellation member-credit entries, scoped to member and reservation IDs. Omitted IDs had no credit movement. No policy recalculation or writes. | — |
+| `ListWalletTransactions` | `handle(int $memberId, ?int $beforeId = null): WalletTransactionPage` | None | Member-scoped posted ledger history, descending transaction ID, fixed 20 rows; exclusive before-ID cursor. At most two batched queries. Booking amount includes coupon/credit/card; refund amount is posted member credit; signed wallet change excludes card. Includes goodwill credit; does not synthesize entries for no-posting cancellations. No rate recalculation or writes. | — |
 | `GetWalletBalance` | `handle(int $memberId, Currency $currency): WalletBalance` | — | Reads cached balances (missing accounts = 0). | — |
 | `ReconcileLedger` | `handle(bool $rebuild = false): ReconciliationReport` | Own txn if `$rebuild` | Re-sums entries per account in normal orientation, compares with `balance_cents`, checks global sum and per-transaction sums. `$rebuild` rewrites cached balances from entries. | — |
 
@@ -863,9 +879,20 @@ final readonly class ReservationData
         public ReservationStatus $status,
         public CarbonImmutable $confirmedAt,
         public ?CarbonImmutable $cancelledAt,
+        public ?Money $cancellationCredit = null,  // hydrated posted credit for cancelled read results; null for confirmed
     ) {}
 }
 
+final readonly class CancellationExpectation
+{
+    public function __construct(public int $creditCents, public int $forfeitedCents, public string $currency, public bool $late) {}
+}
+final readonly class CancellationPreview
+{
+    public function __construct(public int $reservationId, public bool $late, public Money $creditRefunded, public Money $forfeited,
+        public CarbonImmutable $evaluatedAt, public CarbonImmutable $earlyDeadline, public CarbonImmutable $startsAt,
+        public string $venueTimezone, public int $cancelWindowHours) {}
+}
 final readonly class CancellationData
 {
     public function __construct(public ReservationData $reservation, public bool $late, public Money $creditRefunded, public Money $forfeited) {}
@@ -877,7 +904,8 @@ final readonly class CancellationData
 | `PlaceHold` | `__construct(HoldSlot $holdSlot, QuoteHold $quoteHold, GetQuoteForHold $getQuote)`<br>`handle(int $memberId, int $slotId, int $partySize, IdempotencyKey $key): HoldView` | via HoldSlot | Calls `HoldSlot` with `$inTransaction = fn (HoldData $h) => $quoteHold->handle(new QuoteHoldInput(...from $h))`, then `GetQuoteForHold`. | Inventory hold exceptions |
 | `GetHoldView` | `handle(int $memberId, int $holdId): HoldView` | — | `GetHold` (lazy expiry) + quote. | `HoldNotFoundException` |
 | `ConfirmReservation` | `__construct(GetHold, ExpireHold, ReleaseHold, ConvertHoldToBooking, GetQuoteForHold, PlanSpend, PostBookingPayment, AuthorizePayment, MarkPaymentForCapture, VoidPayment, Outbox)`<br>`handle(int $memberId, int $holdId, ?string $cardToken, IdempotencyKey $key): ReservationData` | Mixed, C§6.2 | Confirm algorithm C§6.2. Replay: if a reservation with `idempotency_key = $key->scoped()` exists, return it. | `HoldNotFoundException`, `HoldExpiredException`, `HoldNotActiveException`, `CardRequiredException`, `PaymentDeclinedException`, `PaymentTimeoutException`, `PaymentInProgressException`, `PaymentConflictException`, `InsufficientWalletBalanceException` |
-| `CancelReservation` | `__construct(ReleaseBooking, PostCancellationRefund)`<br>`handle(int $memberId, int $reservationId): CancellationData` | Own txn | C§6.3. HTTP replay is the middleware's job; the ledger key `reservation:{id}:cancel` is the backstop. | `ReservationNotFoundException`, `ReservationNotCancellableException`, `ReservationStartedException` |
+| `CancelReservation` | `__construct(ReleaseBooking, PostCancellationRefund, Support\CancellationPolicy)`<br>`handle(int $memberId, int $reservationId, ?CancellationExpectation $expected = null): CancellationData` | Own txn | C§6.3. HTTP replay is the middleware's job; the ledger key `reservation:{id}:cancel` is the backstop. | `ReservationNotFoundException`, `ReservationNotCancellableException`, `ReservationStartedException` |
+| `PreviewCancellation` | `__construct(GetReservation, Support\CancellationPolicy)`<br>`handle(int $memberId, int $reservationId): CancellationPreview` | None | Member-owned read; same eligibility, cutoff and Wallet calculation as cancel. No writes. | `ReservationNotFoundException`, `ReservationNotCancellableException`, `ReservationStartedException` |
 | `GetReservation` | `handle(int $memberId, int $reservationId): ReservationData` | — | | `ReservationNotFoundException` |
 | `ListReservations` | `handle(int $memberId): list<ReservationData>` | — | Newest `starts_at` first, max 100. | — |
 
@@ -950,6 +978,10 @@ Postgres is the final word: a counter that is too high only lets extra requests 
 
 One transaction: lock the reservation `FOR UPDATE` (missing or not owned → `ReservationNotFoundException`). Status not `confirmed` → `ReservationNotCancellableException` (a retry with the *same* key never reaches here; the middleware replays the first response). `now() >= starts_at` → `ReservationStartedException`. `late = starts_at - now() < reservations.cancel_window_hours` (exactly 8:00:00 before is **early**). Update status/`cancelled_at`; `ReleaseBooking(slotId)`; `PostCancellationRefund(amount = min_spend, late)`. The refund always goes to member credit, however the booking was paid (§5).
 
+**Cancellation history extension (ticket 09, 2026-10-22).** Reservation list/detail responses include `refund: null` for confirmed bookings and `{credit_cents, forfeited_cents, currency, late}` for cancelled bookings. Get/List hydrate `ReservationData.cancellationCredit` through Wallet's `GetCancellationCredits`; absent member-credit entries mean zero credit, including C§5.3's no-posting zero-refund case. Forfeiture is original minimum minus posted credit; `late` uses stored cancellation status. The cancellation response includes the same refund within its reservation. Existing DTO callers remain valid through a trailing optional property. No current config is used for history, no schema changes, and reads do not mutate state. Listing batches Wallet reads once for up to 100 reservations.
+
+**Cancellation preview extension (ticket 09, 2026-10-22).** `PreviewCancellation` uses Reservations' shared cancellation policy and Wallet's public `PreviewCancellationRefund` action. Wallet preview and posting both use the same internal configured split calculation. The preview returns exact integer cents at server `evaluated_at`, the inclusive early deadline, starts_at, venue timezone and current cancellation window; these new timestamps include six fractional digits. It does not reserve a refund rate. Optional `CancellationExpectation` / HTTP `expected_refund` compares credit cents, forfeited cents, currency and late flag under the reservation lock before any write. A mismatch throws 409 `cancellation_preview_changed` with no reservation, inventory, ledger or outbox effect. A new preview and new idempotency key are needed after re-review. The existing two-argument action invocation and `{}` cancel body retain their behavior. Normal idempotent replay runs before this guard and returns the original response even after the deadline or cancellation. No client clock or client-supplied refund controls posting.
+
 ---
 
 ## C§7. Outbox topics and Reverb channels
@@ -1008,7 +1040,9 @@ Base path `/api`. JSON only. All endpoints except `POST /api/auth/token`, `POST 
 | `POST /api/reservations` | Reservations | `{hold_id: int, card_token: string\|null}` + Idempotency-Key | 201 `{data: Reservation}` | 404, 409 `hold_expired`/`hold_not_active`/`payment_in_progress`/`payment_conflict`/`wallet_balance_changed`/`idempotency_in_progress`, 402 `payment_failed`, 504 `payment_timeout`, 422 `card_required`/`validation_failed`/`idempotency_mismatch` |
 | `GET /api/reservations` | Reservations | — | 200 `{data: Reservation[]}` | |
 | `GET /api/reservations/{reservation}` | Reservations | — | 200 `{data: Reservation}` | 404 |
-| `POST /api/reservations/{reservation}/cancel` | Reservations | `{}` + Idempotency-Key | 200 `{data: {reservation: Reservation, refund: {credit_cents, forfeited_cents, currency, late}}}` | 404, 409 `reservation_not_cancellable`/`reservation_started`/`idempotency_in_progress`, 422 `idempotency_mismatch` |
+| `GET /api/reservations/{reservation}/cancellation-preview` | Reservations | — | 200 `{data: {reservation_id, refund: {credit_cents, forfeited_cents, currency, late}, evaluated_at, early_cancellation_deadline, starts_at, venue_timezone, cancel_window_hours}}`; private/no-store | 404 ownership-hidden, 409 `reservation_not_cancellable`/`reservation_started` |
+| `POST /api/reservations/{reservation}/cancel` | Reservations | `{}` or `{expected_refund: {credit_cents: int>=0, forfeited_cents: int>=0, currency: "USD", late: bool}}` + Idempotency-Key | 200 `{data: {reservation: Reservation, refund: {credit_cents, forfeited_cents, currency, late}}}` | 404, 409 `reservation_not_cancellable`/`reservation_started`/`cancellation_preview_changed`/`idempotency_in_progress`, 422 `validation_failed`/`idempotency_mismatch` |
+| `GET /api/wallet/transactions` | Wallet | optional query `before_id`: positive integer <=9007199254740991 | 200 `{data: {transactions: [{id, type, reservation_id, venue_id, amount_cents, currency, wallet_change_cents, credit_cents, coupon_cents, card_cents, forfeited_cents, occurred_at}], next_before_id}}`; private/no-store, timestamp UTC with six fractional digits | 401, 422 `validation_failed` |
 | `GET /api/wallet` | Wallet | — | 200 `{data: {currency: "USD", credit_cents, coupon_cents}}` | |
 | `POST /api/webhooks/payments/fake` | Payments | C§11 payload, header `Fake-Signature` | 200 `{data: {duplicate: bool}}` | 401 `invalid_signature`, 422 |
 | `POST /broadcasting/auth` | Realtime | Pusher auth form fields | 200 Pusher auth JSON | 403 |
@@ -1036,7 +1070,7 @@ Route model binding is not used across modules; controllers take `int` ids and c
 {"id": 5, "hold_id": 9, "status": "confirmed", "slot_id": 42, "venue_id": 3, "party_size": 2,
  "starts_at": "...", "local_starts_at": "...", "min_spend_cents": 75000, "currency": "USD",
  "payment": {"coupon_cents": 0, "credit_cents": 20000, "card_cents": 55000},
- "confirmed_at": "...", "cancelled_at": null}
+ "confirmed_at": "...", "cancelled_at": null, "refund": null}
 ```
 
 `bookable` = `released_at <= now && starts_at > now && available > 0`. `had_availability` = some slot that local date with local hour = `hour`, `bookable`, and `min_party_size <= party_size <= max_party_size`.
@@ -1048,6 +1082,7 @@ Route model binding is not used across modules; controllers take `int` ids and c
 | Code | HTTP | Raised by |
 | --- | --- | --- |
 | `validation_failed` | 422 | framework validation; `details.errors` = field → messages |
+| `cancellation_preview_changed` | 409 | Reservations; expected refund no longer matches under the row lock, nothing cancelled |
 | `unauthenticated` | 401 | missing/invalid token |
 | `invalid_credentials` | 401 | `POST /api/auth/token` |
 | `forbidden` | 403 | channel auth |

@@ -1,0 +1,82 @@
+{
+  "verified_at": "2026-10-22T15:00:05.589Z",
+  "run": "mtq65go6jg",
+  "evidence": [
+    {
+      "timing": "early",
+      "reservation_id": 20,
+      "preview": {
+        "reservation_id": 20,
+        "refund": {
+          "credit_cents": 60000,
+          "forfeited_cents": 0,
+          "currency": "USD",
+          "late": false
+        },
+        "evaluated_at": "2026-10-22T15:00:05.357710Z",
+        "early_cancellation_deadline": "2026-10-23T14:59:16.648781Z",
+        "starts_at": "2026-10-23T22:59:16.648781Z",
+        "venue_timezone": "America/New_York",
+        "cancel_window_hours": 8
+      },
+      "actual": {
+        "credit_cents": 60000,
+        "forfeited_cents": 0,
+        "currency": "USD",
+        "late": false
+      },
+      "status": "cancelled_early",
+      "wallet_before": {
+        "currency": "USD",
+        "credit_cents": 90000,
+        "coupon_cents": 0
+      },
+      "wallet_after": {
+        "currency": "USD",
+        "credit_cents": 150000,
+        "coupon_cents": 0
+      },
+      "restored_availability": 1,
+      "exact_replay": true,
+      "stale_preview_rejected": true
+    },
+    {
+      "timing": "late",
+      "reservation_id": 21,
+      "preview": {
+        "reservation_id": 21,
+        "refund": {
+          "credit_cents": 25000,
+          "forfeited_cents": 25000,
+          "currency": "USD",
+          "late": true
+        },
+        "evaluated_at": "2026-10-22T15:00:05.521771Z",
+        "early_cancellation_deadline": "2026-10-22T08:59:16.658854Z",
+        "starts_at": "2026-10-22T16:59:16.658854Z",
+        "venue_timezone": "America/New_York",
+        "cancel_window_hours": 8
+      },
+      "actual": {
+        "credit_cents": 25000,
+        "forfeited_cents": 25000,
+        "currency": "USD",
+        "late": true
+      },
+      "status": "cancelled_late",
+      "wallet_before": {
+        "currency": "USD",
+        "credit_cents": 150000,
+        "coupon_cents": 0
+      },
+      "wallet_after": {
+        "currency": "USD",
+        "credit_cents": 175000,
+        "coupon_cents": 0
+      },
+      "restored_availability": 1,
+      "exact_replay": true,
+      "stale_preview_rejected": true
+    }
+  ]
+}

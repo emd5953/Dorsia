@@ -8,7 +8,10 @@ use App\Modules\Reservations\Actions\CancelReservation;
 use App\Modules\Reservations\Actions\ConfirmReservation;
 use App\Modules\Reservations\Actions\GetReservation;
 use App\Modules\Reservations\Actions\ListReservations;
+use App\Modules\Reservations\Actions\PreviewCancellation;
+use App\Modules\Reservations\Http\Requests\CancelReservationRequest;
 use App\Modules\Reservations\Http\Requests\ConfirmReservationRequest;
+use App\Modules\Reservations\Http\Resources\CancellationPreviewResource;
 use App\Modules\Reservations\Http\Resources\CancellationResource;
 use App\Modules\Reservations\Http\Resources\ReservationResource;
 use App\Shared\Idempotency\IdempotencyKey;
@@ -42,9 +45,15 @@ final class ReservationController
         return new ReservationResource($get->handle($this->memberId($request), $reservation));
     }
 
-    public function cancel(int $reservation, Request $request, CancelReservation $cancel): CancellationResource
+    public function cancel(int $reservation, CancelReservationRequest $request, CancelReservation $cancel): CancellationResource
     {
-        return new CancellationResource($cancel->handle($this->memberId($request), $reservation));
+        return new CancellationResource($cancel->handle($this->memberId($request), $reservation, $request->expectation()));
+    }
+
+    public function cancellationPreview(int $reservation, Request $request, PreviewCancellation $preview): JsonResponse
+    {
+        return (new CancellationPreviewResource($preview->handle($this->memberId($request), $reservation)))
+            ->response()->header('Cache-Control', 'private, no-store');
     }
 
     private function memberId(Request $request): int

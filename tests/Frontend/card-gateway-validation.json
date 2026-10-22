@@ -1,0 +1,45 @@
+{
+    "charges": [
+        {
+            "provider_ref": "fake_ch_01M5HZCJZA2BGEZW27PM79QZH5",
+            "amount_cents": 8000,
+            "currency": "USD",
+            "status": "refunded",
+            "idempotency_key": "hold:7:auth",
+            "payment_id": 3
+        },
+        {
+            "provider_ref": "fake_ch_01M5HZHWV3TJFX7XJ23C9MKSZH",
+            "amount_cents": 75000,
+            "currency": "USD",
+            "status": "refunded",
+            "idempotency_key": "hold:12:auth",
+            "payment_id": 8
+        },
+        {
+            "provider_ref": "fake_ch_01M5HZCK1KQQE6W9KNMMSGTQ1K",
+            "amount_cents": 8000,
+            "currency": "USD",
+            "status": "captured",
+            "idempotency_key": "hold:8:auth",
+            "payment_id": 4
+        },
+        {
+            "provider_ref": "fake_ch_01M5HZJQ4PGSMPHJNEG5K7W9PF",
+            "amount_cents": 75000,
+            "currency": "USD",
+            "status": "captured",
+            "idempotency_key": "hold:13:auth",
+            "payment_id": 9
+        },
+        {
+            "provider_ref": "fake_ch_01M5HZEXG198V0DNAWH6C8TJNY",
+            "amount_cents": 25000,
+            "currency": "USD",
+            "status": "captured",
+            "idempotency_key": "hold:10:auth",
+            "payment_id": 6
+        }
+    ],
+    "authorize_calls": 9
+}

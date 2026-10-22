@@ -1,0 +1,140 @@
+{
+    "run": "mtq65go6jg",
+    "accounts": {
+        "desktop": {
+            "id": 7,
+            "email": "cancel-desktop-mtq65go6jg@dorsia.test",
+            "initial_credit_cents": 200000,
+            "bookings": {
+                "early": {
+                    "reservation_id": 16,
+                    "slot_id": 1687,
+                    "starts_at": "2026-10-23T22:59:16+00:00",
+                    "preview": {
+                        "reservation_id": 16,
+                        "refund": {
+                            "credit_cents": 60000,
+                            "forfeited_cents": 0,
+                            "currency": "USD",
+                            "late": false
+                        },
+                        "evaluated_at": "2026-10-22T14:59:16.182195Z",
+                        "early_cancellation_deadline": "2026-10-23T14:59:16.113411Z",
+                        "starts_at": "2026-10-23T22:59:16.113411Z",
+                        "venue_timezone": "America\/New_York",
+                        "cancel_window_hours": 8
+                    }
+                },
+                "late": {
+                    "reservation_id": 17,
+                    "slot_id": 1688,
+                    "starts_at": "2026-10-22T16:59:16+00:00",
+                    "preview": {
+                        "reservation_id": 17,
+                        "refund": {
+                            "credit_cents": 25000,
+                            "forfeited_cents": 25000,
+                            "currency": "USD",
+                            "late": true
+                        },
+                        "evaluated_at": "2026-10-22T14:59:16.195134Z",
+                        "early_cancellation_deadline": "2026-10-22T08:59:16.184319Z",
+                        "starts_at": "2026-10-22T16:59:16.184319Z",
+                        "venue_timezone": "America\/New_York",
+                        "cancel_window_hours": 8
+                    }
+                }
+            }
+        },
+        "mobile": {
+            "id": 8,
+            "email": "cancel-mobile-mtq65go6jg@dorsia.test",
+            "initial_credit_cents": 200000,
+            "bookings": {
+                "early": {
+                    "reservation_id": 18,
+                    "slot_id": 1689,
+                    "starts_at": "2026-10-23T22:59:16+00:00",
+                    "preview": {
+                        "reservation_id": 18,
+                        "refund": {
+                            "credit_cents": 60000,
+                            "forfeited_cents": 0,
+                            "currency": "USD",
+                            "late": false
+                        },
+                        "evaluated_at": "2026-10-22T14:59:16.422311Z",
+                        "early_cancellation_deadline": "2026-10-23T14:59:16.410581Z",
+                        "starts_at": "2026-10-23T22:59:16.410581Z",
+                        "venue_timezone": "America\/New_York",
+                        "cancel_window_hours": 8
+                    }
+                },
+                "late": {
+                    "reservation_id": 19,
+                    "slot_id": 1690,
+                    "starts_at": "2026-10-22T16:59:16+00:00",
+                    "preview": {
+                        "reservation_id": 19,
+                        "refund": {
+                            "credit_cents": 25000,
+                            "forfeited_cents": 25000,
+                            "currency": "USD",
+                            "late": true
+                        },
+                        "evaluated_at": "2026-10-22T14:59:16.431537Z",
+                        "early_cancellation_deadline": "2026-10-22T08:59:16.422373Z",
+                        "starts_at": "2026-10-22T16:59:16.422373Z",
+                        "venue_timezone": "America\/New_York",
+                        "cancel_window_hours": 8
+                    }
+                }
+            }
+        },
+        "integration": {
+            "id": 9,
+            "email": "cancel-integration-mtq65go6jg@dorsia.test",
+            "initial_credit_cents": 200000,
+            "bookings": {
+                "early": {
+                    "reservation_id": 20,
+                    "slot_id": 1691,
+                    "starts_at": "2026-10-23T22:59:16+00:00",
+                    "preview": {
+                        "reservation_id": 20,
+                        "refund": {
+                            "credit_cents": 60000,
+                            "forfeited_cents": 0,
+                            "currency": "USD",
+                            "late": false
+                        },
+                        "evaluated_at": "2026-10-22T14:59:16.658788Z",
+                        "early_cancellation_deadline": "2026-10-23T14:59:16.648781Z",
+                        "starts_at": "2026-10-23T22:59:16.648781Z",
+                        "venue_timezone": "America\/New_York",
+                        "cancel_window_hours": 8
+                    }
+                },
+                "late": {
+                    "reservation_id": 21,
+                    "slot_id": 1692,
+                    "starts_at": "2026-10-22T16:59:16+00:00",
+                    "preview": {
+                        "reservation_id": 21,
+                        "refund": {
+                            "credit_cents": 25000,
+                            "forfeited_cents": 25000,
+                            "currency": "USD",
+                            "late": true
+                        },
+                        "evaluated_at": "2026-10-22T14:59:16.666676Z",
+                        "early_cancellation_deadline": "2026-10-22T08:59:16.658854Z",
+                        "starts_at": "2026-10-22T16:59:16.658854Z",
+                        "venue_timezone": "America\/New_York",
+                        "cancel_window_hours": 8
+                    }
+                }
+            }
+        }
+    }
+}

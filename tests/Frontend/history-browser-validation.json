@@ -1,0 +1,83 @@
+{
+  "verified_at": "2026-10-22T15:18:59.091585+00:00",
+  "run": "mtq65go6jg",
+  "source": "Observed CUA browser journeys; API proof is history-live-validation.json",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 900
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844
+    }
+  },
+  "browser_checks": {
+    "history_tab_survives_full_refresh": true,
+    "auth_survives_full_refresh": true,
+    "list_refunds_unchanged": true,
+    "early_and_late_details_after_refresh": true,
+    "no_horizontal_overflow": true,
+    "browser_warnings_errors": []
+  },
+  "layout": {
+    "desktop_page": [
+      1280,
+      1280
+    ],
+    "mobile_page": [
+      375,
+      375
+    ],
+    "mobile_dialog": [
+      388,
+      388
+    ]
+  },
+  "bookings": [
+    {
+      "device": "desktop",
+      "id": 16,
+      "timing": "early",
+      "credit_cents": 60000,
+      "forfeited_cents": 0,
+      "card_and_detail_match_before_after_refresh": true
+    },
+    {
+      "device": "desktop",
+      "id": 17,
+      "timing": "late",
+      "credit_cents": 25000,
+      "forfeited_cents": 25000,
+      "card_and_detail_match_before_after_refresh": true
+    },
+    {
+      "device": "mobile",
+      "id": 18,
+      "timing": "early",
+      "credit_cents": 60000,
+      "forfeited_cents": 0,
+      "card_and_detail_match_before_after_refresh": true
+    },
+    {
+      "device": "mobile",
+      "id": 19,
+      "timing": "late",
+      "credit_cents": 25000,
+      "forfeited_cents": 25000,
+      "card_and_detail_match_before_after_refresh": true
+    }
+  ],
+  "screenshots": [
+    "screenshots/history-desktop-after-refresh.png",
+    "screenshots/history-desktop-before-refresh.png",
+    "screenshots/history-desktop-early-detail.png",
+    "screenshots/history-desktop-late-detail.png",
+    "screenshots/history-mobile-after-refresh.png",
+    "screenshots/history-mobile-before-refresh.png",
+    "screenshots/history-mobile-early-card.png",
+    "screenshots/history-mobile-early-detail.png",
+    "screenshots/history-mobile-late-card.png",
+    "screenshots/history-mobile-late-detail.png"
+  ]
+}

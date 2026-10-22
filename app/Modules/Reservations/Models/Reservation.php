@@ -44,7 +44,7 @@ final class Reservation extends Model
 
     protected $dateFormat = Timestamps::FORMAT;
 
-    public function toData(): ReservationData
+    public function toData(?Money $cancellationCredit = null): ReservationData
     {
         return new ReservationData(
             id: $this->id,
@@ -64,6 +64,7 @@ final class Reservation extends Model
             status: $this->status,
             confirmedAt: $this->confirmed_at,
             cancelledAt: $this->cancelled_at,
+            cancellationCredit: $cancellationCredit,
         );
     }
 

@@ -14,6 +14,13 @@ final readonly class LateCancelSplit
 {
     public function __construct(public Money $member, public Money $platform, public Money $venueRetained) {}
 
+    public static function forPolicy(Money $amount, bool $late): self
+    {
+        return $late
+            ? self::calculate($amount, config()->integer('wallet.late_cancel.member_bps'), config()->integer('wallet.late_cancel.platform_bps'))
+            : new self($amount, Money::zero($amount->currency), Money::zero($amount->currency));
+    }
+
     /**
      * @throws InvalidArgumentException if the shares exceed 100%
      */

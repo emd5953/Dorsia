@@ -1,0 +1,20 @@
+{
+    "run": "sendlqg2na",
+    "accounts": {
+        "desktop": {
+            "id": 2,
+            "email": "card-desktop-sendlqg2na@dorsia.test",
+            "credit_cents": 50000
+        },
+        "mobile": {
+            "id": 3,
+            "email": "card-mobile-sendlqg2na@dorsia.test",
+            "credit_cents": 0
+        },
+        "integration": {
+            "id": 4,
+            "email": "card-integration-sendlqg2na@dorsia.test",
+            "credit_cents": 10000
+        }
+    }
+}

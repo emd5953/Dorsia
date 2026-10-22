@@ -1,0 +1,111 @@
+{
+  "verified_at": "2026-10-22T15:15:16.661Z",
+  "run": "mtq65go6jg",
+  "evidence": [
+    {
+      "device": "desktop",
+      "bookings": [
+        {
+          "id": 16,
+          "timing": "early",
+          "refund": {
+            "credit_cents": 60000,
+            "forfeited_cents": 0,
+            "currency": "USD",
+            "late": false
+          },
+          "status": "cancelled_early",
+          "available": 1
+        },
+        {
+          "id": 17,
+          "timing": "late",
+          "refund": {
+            "credit_cents": 25000,
+            "forfeited_cents": 25000,
+            "currency": "USD",
+            "late": true
+          },
+          "status": "cancelled_late",
+          "available": 1
+        }
+      ],
+      "wallet": {
+        "currency": "USD",
+        "credit_cents": 175000,
+        "coupon_cents": 0
+      },
+      "fresh_client_matches": true
+    },
+    {
+      "device": "mobile",
+      "bookings": [
+        {
+          "id": 18,
+          "timing": "early",
+          "refund": {
+            "credit_cents": 60000,
+            "forfeited_cents": 0,
+            "currency": "USD",
+            "late": false
+          },
+          "status": "cancelled_early",
+          "available": 1
+        },
+        {
+          "id": 19,
+          "timing": "late",
+          "refund": {
+            "credit_cents": 25000,
+            "forfeited_cents": 25000,
+            "currency": "USD",
+            "late": true
+          },
+          "status": "cancelled_late",
+          "available": 1
+        }
+      ],
+      "wallet": {
+        "currency": "USD",
+        "credit_cents": 175000,
+        "coupon_cents": 0
+      },
+      "fresh_client_matches": true
+    },
+    {
+      "device": "integration",
+      "bookings": [
+        {
+          "id": 20,
+          "timing": "early",
+          "refund": {
+            "credit_cents": 60000,
+            "forfeited_cents": 0,
+            "currency": "USD",
+            "late": false
+          },
+          "status": "cancelled_early",
+          "available": 1
+        },
+        {
+          "id": 21,
+          "timing": "late",
+          "refund": {
+            "credit_cents": 25000,
+            "forfeited_cents": 25000,
+            "currency": "USD",
+            "late": true
+          },
+          "status": "cancelled_late",
+          "available": 1
+        }
+      ],
+      "wallet": {
+        "currency": "USD",
+        "credit_cents": 175000,
+        "coupon_cents": 0
+      },
+      "fresh_client_matches": true
+    }
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "run": "sendlqg2na",
+  "verified_at": "2026-10-22T14:18:38.912Z",
+  "bookings": [
+    {
+      "viewport": "1280x900",
+      "reservation_id": 6,
+      "hold_id": 10,
+      "payment": {
+        "coupon_cents": 0,
+        "credit_cents": 50000,
+        "card_cents": 25000
+      },
+      "status": "cancelled_early",
+      "after_cancellation_wallet": {
+        "currency": "USD",
+        "credit_cents": 75000,
+        "coupon_cents": 0
+      },
+      "slot_available": 6,
+      "slot_capacity": 6,
+      "provider_charge": {
+        "provider_ref": "fake_ch_01M5HZEXG198V0DNAWH6C8TJNY",
+        "amount_cents": 25000,
+        "currency": "USD",
+        "status": "captured",
+        "idempotency_key": "hold:10:auth",
+        "payment_id": 6
+      }
+    },
+    {
+      "viewport": "390x844",
+      "reservation_id": 7,
+      "hold_id": 13,
+      "payment": {
+        "coupon_cents": 0,
+        "credit_cents": 0,
+        "card_cents": 75000
+      },
+      "status": "cancelled_early",
+      "after_cancellation_wallet": {
+        "currency": "USD",
+        "credit_cents": 75000,
+        "coupon_cents": 0
+      },
+      "slot_available": 6,
+      "slot_capacity": 6,
+      "provider_charge": {
+        "provider_ref": "fake_ch_01M5HZJQ4PGSMPHJNEG5K7W9PF",
+        "amount_cents": 75000,
+        "currency": "USD",
+        "status": "captured",
+        "idempotency_key": "hold:13:auth",
+        "payment_id": 9
+      }
+    }
+  ],
+  "timeouts": [
+    {
+      "hold_id": 7,
+      "status": "refunded",
+      "amount_cents": 8000
+    },
+    {
+      "hold_id": 12,
+      "status": "refunded",
+      "amount_cents": 75000
+    }
+  ]
+}

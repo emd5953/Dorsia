@@ -1,0 +1,16 @@
+[
+  {
+    "mutation": "cutoff",
+    "file": "app/Modules/Reservations/Support/CancellationPolicy.php",
+    "filter": "previews exactly what cancellation posts at microsecond boundaries",
+    "exit_code": 2,
+    "killed": true
+  },
+  {
+    "mutation": "stale_guard",
+    "file": "app/Modules/Reservations/Actions/CancelReservation.php",
+    "filter": "requires re-review when the deadline passes",
+    "exit_code": 2,
+    "killed": true
+  }
+]

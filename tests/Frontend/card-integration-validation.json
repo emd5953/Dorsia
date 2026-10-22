@@ -1,0 +1,40 @@
+{
+  "run": "sendlqg2na",
+  "failures": [
+    {
+      "method": "declined",
+      "code": "payment_failed",
+      "hold_id": 5,
+      "wallet_unchanged": true,
+      "inventory_restored": true
+    },
+    {
+      "method": "insufficient",
+      "code": "payment_failed",
+      "hold_id": 6,
+      "wallet_unchanged": true,
+      "inventory_restored": true
+    },
+    {
+      "method": "timeout",
+      "code": "payment_timeout",
+      "hold_id": 7,
+      "wallet_unchanged": true,
+      "inventory_restored": true
+    }
+  ],
+  "reservation_id": 5,
+  "hold_id": 8,
+  "payment": {
+    "coupon_cents": 0,
+    "credit_cents": 10000,
+    "card_cents": 8000
+  },
+  "refund": {
+    "credit_cents": 18000,
+    "forfeited_cents": 0,
+    "currency": "USD",
+    "late": false
+  },
+  "exact_retry": true
+}

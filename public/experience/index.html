@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1,viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#f7f6f2" />
+    <meta
+      name="description"
+      content="Discover remarkable tables and plan your next evening with Dorsia."
+    />
+    <title>Dorsia — A place at the table</title>
+    <link rel="icon" href="./assets/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./style.css" />
+    <script type="module" src="./app.mjs"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div id="app">
+      <main class="initial-load" aria-busy="true">
+        <span class="wordmark">DORSIA</span>
+        <p>Preparing your evening…</p>
+      </main>
+    </div>
+    <dialog id="dialog" aria-labelledby="dialog-title"></dialog>
+    <div
+      id="announcer"
+      class="sr-only"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    ></div>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    <noscript
+      ><p>
+        This experience needs JavaScript to search tables and manage
+        reservations.
+      </p></noscript
+    >
+  </body>
+</html>

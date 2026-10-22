@@ -6,11 +6,14 @@ namespace App\Modules\Reservations\Actions;
 
 use App\Modules\Inventory\Actions\ReleaseBooking;
 use App\Modules\Reservations\Data\CancellationData;
+use App\Modules\Reservations\Data\CancellationExpectation;
 use App\Modules\Reservations\Enums\ReservationStatus;
+use App\Modules\Reservations\Exceptions\CancellationPreviewChangedException;
 use App\Modules\Reservations\Exceptions\ReservationNotCancellableException;
 use App\Modules\Reservations\Exceptions\ReservationNotFoundException;
 use App\Modules\Reservations\Exceptions\ReservationStartedException;
 use App\Modules\Reservations\Models\Reservation;
+use App\Modules\Reservations\Support\CancellationPolicy;
 use App\Modules\Wallet\Actions\PostCancellationRefund;
 use App\Modules\Wallet\Data\CancellationRefundInput;
 use App\Shared\Support\Transactions;
@@ -21,6 +24,7 @@ class CancelReservation
     public function __construct(
         private readonly ReleaseBooking $releaseBooking,
         private readonly PostCancellationRefund $postRefund,
+        private readonly CancellationPolicy $policy,
     ) {}
 
     /**
@@ -30,11 +34,11 @@ class CancelReservation
      * @throws ReservationNotCancellableException
      * @throws ReservationStartedException
      */
-    public function handle(int $memberId, int $reservationId): CancellationData
+    public function handle(int $memberId, int $reservationId, ?CancellationExpectation $expected = null): CancellationData
     {
         Transactions::assertNone();
 
-        return DB::transaction(function () use ($memberId, $reservationId): CancellationData {
+        return DB::transaction(function () use ($memberId, $reservationId, $expected): CancellationData {
             $reservation = Reservation::query()
                 ->whereKey($reservationId)
                 ->where('member_id', $memberId)
@@ -45,18 +49,17 @@ class CancelReservation
                 throw new ReservationNotFoundException;
             }
 
-            if ($reservation->status !== ReservationStatus::Confirmed) {
-                throw new ReservationNotCancellableException($reservation->status);
+            $now = now()->toImmutable();
+            $preview = $this->policy->preview($reservation->toData(), $now);
+            if ($expected !== null && (
+                $expected->creditCents !== $preview->creditRefunded->cents
+                || $expected->forfeitedCents !== $preview->forfeited->cents
+                || $expected->currency !== $preview->creditRefunded->currency->value
+                || $expected->late !== $preview->late
+            )) {
+                throw new CancellationPreviewChangedException;
             }
-
-            $now = now();
-
-            if ($now->greaterThanOrEqualTo($reservation->starts_at)) {
-                throw new ReservationStartedException;
-            }
-
-            // Exactly cancel_window_hours before starts_at is still early (D15).
-            $late = $now->greaterThan($reservation->starts_at->subHours(config()->integer('reservations.cancel_window_hours')));
+            $late = $preview->late;
 
             $reservation->status = $late ? ReservationStatus::CancelledLate : ReservationStatus::CancelledEarly;
             $reservation->cancelled_at = $now;
@@ -75,7 +78,7 @@ class CancelReservation
             ));
 
             return new CancellationData(
-                $reservation->toData(),
+                $reservation->toData($refund->memberCredit),
                 $late,
                 $refund->memberCredit,
                 $minSpend->subtract($refund->memberCredit),

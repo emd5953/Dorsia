@@ -38,13 +38,7 @@ class PostCancellationRefund
             return $this->refundFrom($existing->transaction, Money::of($storedAmount, $existing->transaction->currency));
         }
 
-        $split = $input->late
-            ? LateCancelSplit::calculate(
-                $amount,
-                config()->integer('wallet.late_cancel.member_bps'),
-                config()->integer('wallet.late_cancel.platform_bps'),
-            )
-            : new LateCancelSplit($amount, Money::zero($amount->currency), Money::zero($amount->currency));
+        $split = LateCancelSplit::forPolicy($amount, $input->late);
 
         $lines = [PostingLine::venuePayable($input->venueId, $split->member->add($split->platform)->cents)];
 

@@ -76,6 +76,7 @@ it('confirms card only: 201 Reservation, payment authorized then captured by the
         'min_spend_cents' => 75000,
         'currency' => 'USD',
         'payment' => ['coupon_cents' => 0, 'credit_cents' => 0, 'card_cents' => 75000],
+        'refund' => null,
         'confirmed_at' => '2026-11-07T15:00:00Z',
         'cancelled_at' => null,
     ]]);

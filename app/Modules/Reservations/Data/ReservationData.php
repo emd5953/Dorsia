@@ -25,5 +25,6 @@ final readonly class ReservationData
         public ReservationStatus $status,
         public CarbonImmutable $confirmedAt,
         public ?CarbonImmutable $cancelledAt,
+        public ?Money $cancellationCredit = null,
     ) {}
 }
